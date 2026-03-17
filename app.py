@@ -1439,7 +1439,7 @@ def business_permits():
     )
 
     # ---------------------------------------------------
-    # LOAD DATA (FILTER BY TYPE)
+    # LOAD TRACKER DATA (BY TYPE)
     # ---------------------------------------------------
     @st.cache_data(ttl=30)
     def load_data(data_type):
@@ -1482,7 +1482,76 @@ def business_permits():
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     # ---------------------------------------------------
-    # SAVE FUNCTION
+    # LOAD OVERVIEW TABLE
+    # ---------------------------------------------------
+    @st.cache_data(ttl=30)
+    def load_overview():
+        conn, cursor = get_cursor()
+
+        cursor.execute("""
+            SELECT 
+                COMPANY,
+                AREA,
+                BRANCH,
+                DEADLINE,
+                DEADLINE_EXTENSION,
+                BRGY_PERMIT_2025,
+                BUSINESS_PERMIT_2025,
+                SEC_CERT,
+                GROSS_SALES_CERT
+            FROM BUSINESS_PERMIT_OVERVIEW
+        """)
+
+        cols = [
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "DEADLINE",
+            "DEADLINE_EXTENSION",
+            "BRGY_PERMIT_2025",
+            "BUSINESS_PERMIT_2025",
+            "SEC_CERT",
+            "GROSS_SALES_CERT"
+        ]
+
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
+
+    # ---------------------------------------------------
+    # SAVE OVERVIEW
+    # ---------------------------------------------------
+    def save_overview(df):
+        conn, cursor = get_cursor()
+
+        for _, row in df.iterrows():
+            cursor.execute(
+                """
+                UPDATE BUSINESS_PERMIT_OVERVIEW
+                SET
+                    DEADLINE=%s,
+                    DEADLINE_EXTENSION=%s,
+                    BRGY_PERMIT_2025=%s,
+                    BUSINESS_PERMIT_2025=%s,
+                    SEC_CERT=%s,
+                    GROSS_SALES_CERT=%s
+                WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
+                """,
+                (
+                    row["DEADLINE"],
+                    row["DEADLINE_EXTENSION"],
+                    row["BRGY_PERMIT_2025"],
+                    row["BUSINESS_PERMIT_2025"],
+                    row["SEC_CERT"],
+                    row["GROSS_SALES_CERT"],
+                    row["COMPANY"],
+                    row["AREA"],
+                    row["BRANCH"],
+                ),
+            )
+
+        conn.commit()
+
+    # ---------------------------------------------------
+    # SAVE TRACKER DATA
     # ---------------------------------------------------
     def update_data(df, data_type):
         conn, cursor = get_cursor()
@@ -1554,29 +1623,45 @@ def business_permits():
                 "YEAR_COMPARISON": "2025 vs 2026",
                 "PERCENT_CHANGE": "% Change",
                 "WITH_TAX_BILL": "With Tax Bill?",
-                "REASON_NOT_REQUESTING_FUND": "Reason (if not requesting fund)",
+                "REASON_NOT_REQUESTING_FUND": "Reason",
             },
         )
 
-    # ---------------------------------------------------
-    # OVERVIEW (Optional summary)
-    # ---------------------------------------------------
+    # ===================================================
+    # 🟢 OVERVIEW TAB (NOW EDITABLE 🔥)
+    # ===================================================
     with tab1:
-        st.subheader("Overview")
+        st.subheader("Overview Form")
 
-        conn, cursor = get_cursor()
-        cursor.execute("""
-            SELECT TYPE, COUNT(*)
-            FROM BUSINESS_PERMIT_TRACKER
-            GROUP BY TYPE
-        """)
+        df = load_overview()
 
-        df = pd.DataFrame(cursor.fetchall(), columns=["TYPE", "COUNT"])
-        st.dataframe(df, use_container_width=True)
+        edited_df = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="overview_editor",
+            column_config={
+                "DEADLINE": st.column_config.DateColumn("Deadline"),
+                "DEADLINE_EXTENSION": st.column_config.DateColumn("Extension"),
+                "BRGY_PERMIT_2025": st.column_config.NumberColumn("Brgy Permit", format="%.2f"),
+                "BUSINESS_PERMIT_2025": st.column_config.NumberColumn("Business Permit", format="%.2f"),
+                "GROSS_SALES_CERT": st.column_config.NumberColumn("Gross Sales", format="%.2f"),
+                "SEC_CERT": st.column_config.SelectboxColumn(
+                    "SEC CERT",
+                    options=["DONE", "PENDING", "PROCESSING"]
+                ),
+            },
+        )
 
-    # ---------------------------------------------------
+        if st.button("💾 Save Overview"):
+            save_overview(edited_df)
+            load_overview.clear()
+            st.success("Overview Updated ✅")
+            safe_rerun()
+
+    # ===================================================
     # BUSINESS PERMIT
-    # ---------------------------------------------------
+    # ===================================================
     with tab2:
         st.subheader("Business Permit")
 
@@ -1589,9 +1674,9 @@ def business_permits():
             st.success("Saved ✅")
             safe_rerun()
 
-    # ---------------------------------------------------
+    # ===================================================
     # BRGY PERMIT
-    # ---------------------------------------------------
+    # ===================================================
     with tab3:
         st.subheader("Barangay Permit")
 
@@ -1604,9 +1689,9 @@ def business_permits():
             st.success("Saved ✅")
             safe_rerun()
 
-    # ---------------------------------------------------
+    # ===================================================
     # OTHER FEES
-    # ---------------------------------------------------
+    # ===================================================
     with tab4:
         st.subheader("Other Fees for Renew")
 
@@ -1618,7 +1703,6 @@ def business_permits():
             load_data.clear()
             st.success("Saved ✅")
             safe_rerun()
-
 # ---------------------------------------------------
 # TAX MAPPED
 # ---------------------------------------------------
