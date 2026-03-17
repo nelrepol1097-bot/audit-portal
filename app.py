@@ -8,7 +8,8 @@ import pandas as pd
 import plotly.express as px
 from openai import OpenAI
 from streamlit_autorefresh import st_autorefresh
-import streamlit as st
+try:
+    import streamlit as st
 except Exception as e:
     print(e)
 
@@ -98,10 +99,10 @@ def get_connection():
     except Exception as e:
         st.error(f"Connection failed: {e}")
         st.stop()
-    return conn
 
 conn = get_connection()
 cursor = conn.cursor()
+cursor.execute(...)
 
 # ---------------------------------------------------
 # AI CLIENT
@@ -268,6 +269,7 @@ def login():
                     )
                     conn.commit()
                     st.session_state.logged_in = True
+                    st.session_state.user = email
                     st.success("Login Successful")
 
                 elif status == "PENDING":
@@ -284,8 +286,6 @@ def login():
             st.session_state.page = "register"
 
         st.markdown('</div>', unsafe_allow_html=True)
-        st.session_state.user = email
-
 # ---------------------------------------------------
 # REGISTER PAGE
 # ---------------------------------------------------
@@ -1609,8 +1609,7 @@ def dashboard_analytics():
     st.dataframe(df, use_container_width=True)
 
 def dashboard():
-    # auto-refresh every 1s so the clock stays live
-   st_autorefresh(interval=3000, key="clock_refresh") 
+    st_autorefresh(interval=5000, key="clock_refresh")
 
     live_clock()
 
@@ -1634,10 +1633,10 @@ def dashboard():
         ]
     )
 
-    # log page open
-   if "last_log" not in st.session_state:
-    log_activity(menu, "OPEN_PAGE")
-    st.session_state.last_log = datetime.now()
+    # ✅ FIXED LOGGING (proper indent)
+    if "last_log" not in st.session_state:
+        log_activity(menu, "OPEN_PAGE")
+        st.session_state.last_log = datetime.now()
 
     if menu == "Dashboard":
         dashboard_analytics()
