@@ -1401,36 +1401,21 @@ def tax_mapped():
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
-def secretary_certificate():
+def secretary_certificates():
     st.title("📄 Secretary Certificates Compliance")
 
     @st.cache_data(ttl=30, show_spinner=False)
-    def load_sec_secretary_certificates():
-        # Select exactly the columns you want to work with
+    def load_sec():
         cursor.execute("""
             SELECT
-                ID,
-                AREA,
-                MONTH_YEAR,
-                BRANCH,
-                REMARKS,
-                DATE_FORWARDED,
-                STATUS,
-                DATE_RECEIVED,
-                FINAL_STATUS
+                ID, AREA, MONTH_YEAR, BRANCH, REMARKS,
+                DATE_FORWARDED, STATUS, DATE_RECEIVED, FINAL_STATUS
             FROM SECRETARY_CERTIFICATES
         """)
         data = cursor.fetchall()
         columns = [
-            "ID",
-            "AREA",
-            "MONTH_YEAR",
-            "BRANCH",
-            "REMARKS",
-            "DATE_FORWARDED",
-            "STATUS",
-            "DATE_RECEIVED",
-            "FINAL_STATUS"
+            "ID","AREA","MONTH_YEAR","BRANCH","REMARKS",
+            "DATE_FORWARDED","STATUS","DATE_RECEIVED","FINAL_STATUS"
         ]
         return pd.DataFrame(data, columns=columns)
 
