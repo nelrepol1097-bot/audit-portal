@@ -1,15 +1,18 @@
+import os
 import time
-import streamlit as st
-import snowflake.connector
+import smtplib
 from datetime import datetime
-import requests
-from streamlit_lottie import st_lottie
+
 import pandas as pd
 import plotly.express as px
+import requests
+import snowflake.connector
+import streamlit as st
 from openai import OpenAI
-from streamlit_autorefresh import st_autorefresh
+from streamlit_lottie import st_lottie
+
 try:
-    import streamlit as st
+    import streamlit as st  # redundant but harmless
 except Exception as e:
     print(e)
 
@@ -23,7 +26,8 @@ st.set_page_config(page_title="Audit Portal", page_icon="🔎", layout="wide")
 # ANIMATED BACKGROUND
 # ---------------------------------------------------
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 .audit-img{
     animation: float 6s ease-in-out infinite;
@@ -65,25 +69,28 @@ st.markdown("""
     color:white;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------
 # LOAD ANIMATION
 # ---------------------------------------------------
 
-def load_lottie(url):
+
+def load_lottie(url: str):
     r = requests.get(url)
     if r.status_code != 200:
         return None
     return r.json()
 
-lottie_login = load_lottie(
-    "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
-)
+
+lottie_login = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
 
 # ---------------------------------------------------
 # SNOWFLAKE CONNECTION
 # ---------------------------------------------------
+
 
 def get_connection():
     try:
@@ -94,15 +101,21 @@ def get_connection():
             warehouse="COMPUTE_WH",
             database="CFB_ANALYST_JAKE_DB",
             schema="PUBLIC",
-            role="ANALYST_JAKE_ROLE"
+            role="ANALYST_JAKE_ROLE",
         )
     except Exception as e:
         st.error(f"Connection failed: {e}")
         st.stop()
 
-conn = get_connection()
-cursor = conn.cursor()
-cursor.execute(...)
+
+# create global connection + cursor
+try:
+    conn = get_connection()
+    cursor = conn.cursor()
+except Exception as e:
+    st.error(f"Failed to initialize database cursor: {e}")
+    conn = None
+    cursor = None
 
 # ---------------------------------------------------
 # AI CLIENT
@@ -122,8 +135,9 @@ if "page" not in st.session_state:
     st.session_state.page = "login"
 
 # ---------------------------------------------------
-# LIVE CLOCK (single render; auto-refresh handles updates)
+# LIVE CLOCK (top of pages)
 # ---------------------------------------------------
+
 
 def live_clock():
     now = datetime.now().strftime("%A, %B %d %Y | %H:%M:%S")
@@ -133,12 +147,14 @@ def live_clock():
         {now}
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
+
 # ---------------------------------------------------
-# RERUN HELPER (handles old/new versions)
+# RERUN HELPER
 # ---------------------------------------------------
+
 
 def safe_rerun():
     try:
@@ -146,46 +162,131 @@ def safe_rerun():
     except AttributeError:
         st.experimental_rerun()
 
+
 # ---------------------------------------------------
-# HELPER: generic delete/undo pattern for ID-based tables
+# GENERIC SAVE / DELETE / UNDO HELPERS
 # ---------------------------------------------------
 
-def handle_save_with_id(df_name_prefix, table_name, df, id_col,
-                        insert_sql, update_sql, insert_cols, update_cols):
+
+def handle_save_with_id(
+    df_name_prefix: str,
+    table_name: str,
+    df: pd.DataFrame,
+    id_col: str,
+    insert_sql: str,
+    update_sql: str,
+    insert_cols: list,
+    update_cols: list,
+):
+    """
+    Generic handler for data_editor-based tables with integer ID primary keys.
+
+    - Detects inserts (no ID)
+    - Detects updates (existing IDs with changed values)
+    - Detects deletes (IDs removed vs original)
+    - Logs all changes to AUDIT_LOG via log_audit
+    - Stores deleted rows in session_state for undo
+    """
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+    # Ensure numeric IDs for comparison
+    df_work = df.copy()
+    df_work[id_col] = pd.to_numeric(df_work[id_col], errors="coerce")
+
+    # Original dataframe kept in session_state
     orig_key = f"{df_name_prefix}_orig"
-    deleted_key = f"{df_name_prefix}_deleted"
+    orig = st.session_state.get(orig_key, pd.DataFrame(columns=df.columns)).copy()
+    if not orig.empty:
+        orig[id_col] = pd.to_numeric(orig[id_col], errors="coerce")
 
-    orig = st.session_state.get(orig_key, df.copy())
+    orig_ids = set(orig[id_col].dropna().astype(int)) if not orig.empty else set()
+    current_ids = set(df_work[id_col].dropna().astype(int))
 
-    orig_ids = set(orig[id_col].dropna().astype(int))
-    edited_ids = set(df[id_col].dropna().astype(int))
+    # New rows (no ID yet)
+    new_rows = df_work[df_work[id_col].isna()]
 
-    # deletions
-    deleted_ids = orig_ids - edited_ids
-    if deleted_ids:
-        st.session_state[deleted_key] = orig[orig[id_col].isin(deleted_ids)].copy()
+    # Existing rows (for update / delete detection)
+    existing_rows = df_work[df_work[id_col].notna()]
+    existing_ids = set(existing_rows[id_col].astype(int))
+
+    # Deleted rows: in original but not in current
+    deleted_ids = orig_ids - existing_ids
+
+    # map original rows by ID for comparison
+    if not orig.empty:
+        orig_indexed = orig.set_index(id_col)
+    else:
+        orig_indexed = pd.DataFrame().set_index(pd.Index([]))
 
     # INSERT new rows
-    new_rows = df[df[id_col].isna()]
     for _, row in new_rows.iterrows():
         vals = [row[c] for c in insert_cols]
         cursor.execute(insert_sql, vals)
+        # audit with no record_id (ID is auto)
+        log_audit(table_name, None, "ALL", None, str(vals), "INSERT")
 
-    # UPDATE existing rows
-    existing_ids = orig_ids & edited_ids
-    existing_rows = df[df[id_col].isin(existing_ids)]
+    # UPDATE existing rows (with audit)
     for _, row in existing_rows.iterrows():
-        vals = [row[c] for c in update_cols] + [int(row[id_col])]
+        rid = int(row[id_col])
+        if rid in orig_indexed.index:
+            old_row = orig_indexed.loc[rid]
+            # column-level audit
+            for col in update_cols:
+                old_val = old_row[col]
+                new_val = row[col]
+                if str(old_val) != str(new_val):
+                    log_audit(
+                        table_name,
+                        rid,
+                        col,
+                        old_val,
+                        new_val,
+                        "UPDATE",
+                    )
+
+        vals = [row[c] for c in update_cols] + [rid]
         cursor.execute(update_sql, vals)
 
-    # DELETE removed rows
-    for del_id in deleted_ids:
-        cursor.execute(f"DELETE FROM {table_name} WHERE {id_col}=%s", (int(del_id),))
+    # DELETE removed rows (with audit + undo buffer)
+    deleted_key = f"{df_name_prefix}_deleted"
+    deleted_buffer = st.session_state.get(deleted_key, pd.DataFrame())
+
+    if not orig.empty and deleted_ids:
+        deleted_rows = orig[orig[id_col].isin(list(deleted_ids))]
+        for _, drow in deleted_rows.iterrows():
+            del_id = int(drow[id_col])
+            log_audit(table_name, del_id, "ALL", "ROW", "DELETED", "DELETE")
+            cursor.execute(
+                f"DELETE FROM {table_name} WHERE {id_col}=%s",
+                (del_id,),
+            )
+
+        # store for undo
+        if deleted_buffer is None or deleted_buffer.empty:
+            deleted_buffer = deleted_rows.copy()
+        else:
+            deleted_buffer = pd.concat([deleted_buffer, deleted_rows], ignore_index=True)
+
+        st.session_state[deleted_key] = deleted_buffer
 
     conn.commit()
 
 
 def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_with_id):
+    """
+    Undo last delete for tables using handle_save_with_id.
+    Restores from session_state[f"{prefix}_deleted"].
+    """
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     deleted_key = f"{df_name_prefix}_deleted"
     if deleted_key not in st.session_state:
         return False
@@ -202,34 +303,100 @@ def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_wit
     st.session_state[deleted_key] = pd.DataFrame()
     return True
 
+
 # ---------------------------------------------------
-# ACTIVITY LOG
+# ACTIVITY / AUDIT LOG
 # ---------------------------------------------------
 
+
 def log_activity(page, action):
+    global conn, cursor
     try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
+        if conn is None or cursor is None:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+        cur = cursor
+        cur.execute(
+            """
             INSERT INTO USER_ACTIVITY_LOG
             (EMAIL, PAGE, ACTION, TIMESTAMP)
             VALUES (%s,%s,%s,%s)
-        """, (
-            st.session_state.get("user", "UNKNOWN"),
-            page,
-            action,
-            datetime.now()
-        ))
+        """,
+            (
+                st.session_state.get("user", "UNKNOWN"),
+                page,
+                action,
+                datetime.now(),
+            ),
+        )
         conn.commit()
     except Exception:
         # best-effort logging; ignore failures
         pass
 
+
+def log_audit(table, record_id, column, old, new, action):
+    global conn, cursor
+    try:
+        if conn is None or cursor is None:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+        cursor.execute(
+            """
+        INSERT INTO AUDIT_LOG
+        (USER_EMAIL,TABLE_NAME,RECORD_ID,COLUMN_NAME,OLD_VALUE,NEW_VALUE,ACTION,TIMESTAMP)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+            (
+                st.session_state.get("user", "UNKNOWN"),
+                table,
+                record_id,
+                column,
+                str(old),
+                str(new),
+                action,
+                datetime.now(),
+            ),
+        )
+
+        conn.commit()
+    except Exception:
+        # best-effort audit; ignore failures
+        pass
+
+
+# ---------------------------------------------------
+# EMAIL ALERT (not currently used, but kept)
+# ---------------------------------------------------
+
+
+def send_alert(message):
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login("your_email@gmail.com", "app_password")
+
+        server.sendmail(
+            "your_email@gmail.com",
+            "admin@email.com",
+            message,
+        )
+
+        server.quit()
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------
 # LOGIN PAGE
 # ---------------------------------------------------
 
+
 def login():
+    global conn, cursor
+
     live_clock()
 
     col1, col2 = st.columns([1.2, 1])
@@ -246,6 +413,10 @@ def login():
         password_input = st.text_input("Password", type="password")
 
         if st.button("Login"):
+            if conn is None or cursor is None:
+                conn = get_connection()
+                cursor = conn.cursor()
+
             query = """
             SELECT STATUS
             FROM USERS
@@ -265,7 +436,7 @@ def login():
                         (EMAIL,LOGIN_TIME)
                         VALUES (%s,%s)
                         """,
-                        (email, login_time)
+                        (email, login_time),
                     )
                     conn.commit()
                     st.session_state.logged_in = True
@@ -285,12 +456,17 @@ def login():
         if st.button("Create Account"):
             st.session_state.page = "register"
 
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
 # ---------------------------------------------------
 # REGISTER PAGE
 # ---------------------------------------------------
 
+
 def register():
+    global conn, cursor
+
     live_clock()
 
     st.title("Create Account")
@@ -300,6 +476,10 @@ def register():
     password_input = st.text_input("Password", type="password")
 
     if st.button("Register"):
+        if conn is None or cursor is None:
+            conn = get_connection()
+            cursor = conn.cursor()
+
         query = """
         INSERT INTO USERS
         (NAME,EMAIL,PASSWORD,STATUS,DATE_REGISTERED)
@@ -313,18 +493,28 @@ def register():
     if st.button("Back to Login"):
         st.session_state.page = "login"
 
+
 # ---------------------------------------------------
 # ADMIN PANEL
 # ---------------------------------------------------
 
+
 def admin_panel():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("👨‍💼 Admin Approval Panel")
 
-    cursor.execute("""
+    cursor.execute(
+        """
     SELECT ID,NAME,EMAIL
     FROM USERS
     WHERE STATUS='PENDING'
-    """)
+    """
+    )
 
     users = cursor.fetchall()
 
@@ -339,7 +529,7 @@ def admin_panel():
                 if st.button(f"Approve {user[0]}"):
                     cursor.execute(
                         "UPDATE USERS SET STATUS='APPROVED' WHERE ID=%s",
-                        (user[0],)
+                        (user[0],),
                     )
                     conn.commit()
                     st.success("User approved")
@@ -348,7 +538,7 @@ def admin_panel():
                 if st.button(f"Reject {user[0]}"):
                     cursor.execute(
                         "UPDATE USERS SET STATUS='REJECTED' WHERE ID=%s",
-                        (user[0],)
+                        (user[0],),
                     )
                     conn.commit()
                     st.error("User rejected")
@@ -357,11 +547,19 @@ def admin_panel():
     else:
         st.info("No pending users.")
 
+
 # ---------------------------------------------------
 # ATP CERTIFICATES PAGE
 # ---------------------------------------------------
 
+
 def atp_certificates():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📄 ATP Certificates Compliance")
 
     @st.cache_data(ttl=30, show_spinner=False)
@@ -376,7 +574,7 @@ def atp_certificates():
             "SERVICE_INVOICE_SERIAL_NO",
             "BIR_DATE_RECEIVED_FIRST_STAMP",
             "BIR_DATE_RECEIVED_LAST_STAMP",
-            "STATUS"
+            "STATUS",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -389,7 +587,7 @@ def atp_certificates():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="atp_editor"
+        key="atp_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -428,7 +626,7 @@ def atp_certificates():
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED_FIRST_STAMP",
                     "BIR_DATE_RECEIVED_LAST_STAMP",
-                    "STATUS"
+                    "STATUS",
                 ],
                 update_cols=[
                     "COMPANY",
@@ -437,8 +635,8 @@ def atp_certificates():
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED_FIRST_STAMP",
                     "BIR_DATE_RECEIVED_LAST_STAMP",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             load_atp.clear()
             st.session_state.atp_orig = load_atp()
@@ -466,8 +664,8 @@ def atp_certificates():
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED_FIRST_STAMP",
                     "BIR_DATE_RECEIVED_LAST_STAMP",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             if ok:
                 load_atp.clear()
@@ -483,11 +681,19 @@ def atp_certificates():
             st.session_state.atp_orig = load_atp()
             safe_rerun()
 
+
 # ---------------------------------------------------
 # BIR 1906 ATP
 # ---------------------------------------------------
 
+
 def bir_1906_atp():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📄 BIR 1906 ATP")
 
     @st.cache_data(ttl=30, show_spinner=False)
@@ -500,7 +706,7 @@ def bir_1906_atp():
             "BRANCH",
             "SERVICE_INVOICE_SERIAL_NO",
             "BIR_DATE_RECEIVED",
-            "STATUS"
+            "STATUS",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -513,7 +719,7 @@ def bir_1906_atp():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="bir1906_editor"
+        key="bir1906_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -545,15 +751,15 @@ def bir_1906_atp():
                     "BRANCH",
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED",
-                    "STATUS"
+                    "STATUS",
                 ],
                 update_cols=[
                     "COMPANY",
                     "BRANCH",
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             load_bir.clear()
             st.session_state.bir1906_orig = load_bir()
@@ -576,8 +782,8 @@ def bir_1906_atp():
                     "BRANCH",
                     "SERVICE_INVOICE_SERIAL_NO",
                     "BIR_DATE_RECEIVED",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             if ok:
                 load_bir.clear()
@@ -593,11 +799,19 @@ def bir_1906_atp():
             st.session_state.bir1906_orig = load_bir()
             safe_rerun()
 
+
 # ---------------------------------------------------
 # AI COMPLIANCE COPILOT
 # ---------------------------------------------------
 
+
 def ai_copilot():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("🤖 Compliance AI Copilot")
 
     st.write("Ask questions about your compliance data.")
@@ -641,7 +855,7 @@ def ai_copilot():
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
         )
 
         sql_query = response.choices[0].message.content.strip()
@@ -665,11 +879,19 @@ def ai_copilot():
         except Exception as e:
             st.error(f"Query failed: {e}")
 
+
 # ---------------------------------------------------
 # BOA STICKER
 # ---------------------------------------------------
 
+
 def boa_sticker():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📄 BOA Sticker")
 
     @st.cache_data(ttl=30, show_spinner=False)
@@ -684,7 +906,7 @@ def boa_sticker():
             "BOOK_TO_REGISTER",
             "VOLUME_NUMBER",
             "DATE_FORWARDED_TO_BRANCH",
-            "STATUS"
+            "STATUS",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -697,7 +919,7 @@ def boa_sticker():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="boa_editor"
+        key="boa_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -733,7 +955,7 @@ def boa_sticker():
                     "BOOK_TO_REGISTER",
                     "VOLUME_NUMBER",
                     "DATE_FORWARDED_TO_BRANCH",
-                    "STATUS"
+                    "STATUS",
                 ],
                 update_cols=[
                     "COMPANY",
@@ -742,8 +964,8 @@ def boa_sticker():
                     "BOOK_TO_REGISTER",
                     "VOLUME_NUMBER",
                     "DATE_FORWARDED_TO_BRANCH",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             load_boa.clear()
             st.session_state.boa_orig = load_boa()
@@ -768,8 +990,8 @@ def boa_sticker():
                     "BOOK_TO_REGISTER",
                     "VOLUME_NUMBER",
                     "DATE_FORWARDED_TO_BRANCH",
-                    "STATUS"
-                ]
+                    "STATUS",
+                ],
             )
             if ok:
                 load_boa.clear()
@@ -785,11 +1007,19 @@ def boa_sticker():
             st.session_state.boa_orig = load_boa()
             safe_rerun()
 
+
 # ---------------------------------------------------
 # FIRE SAFETY
 # ---------------------------------------------------
 
+
 def fire_safety():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📄 Fire Safety")
 
     @st.cache_data(ttl=30, show_spinner=False)
@@ -803,7 +1033,7 @@ def fire_safety():
             "BRANCH",
             "FSIC_VALIDITY",
             "FSIC_FEE",
-            "REMARKS"
+            "REMARKS",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -816,7 +1046,7 @@ def fire_safety():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="fire_editor"
+        key="fire_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -850,7 +1080,7 @@ def fire_safety():
                     "BRANCH",
                     "FSIC_VALIDITY",
                     "FSIC_FEE",
-                    "REMARKS"
+                    "REMARKS",
                 ],
                 update_cols=[
                     "COMPANY",
@@ -858,8 +1088,8 @@ def fire_safety():
                     "BRANCH",
                     "FSIC_VALIDITY",
                     "FSIC_FEE",
-                    "REMARKS"
-                ]
+                    "REMARKS",
+                ],
             )
             load_fire.clear()
             st.session_state.fire_orig = load_fire()
@@ -883,8 +1113,8 @@ def fire_safety():
                     "BRANCH",
                     "FSIC_VALIDITY",
                     "FSIC_FEE",
-                    "REMARKS"
-                ]
+                    "REMARKS",
+                ],
             )
             if ok:
                 load_fire.clear()
@@ -900,11 +1130,19 @@ def fire_safety():
             st.session_state.fire_orig = load_fire()
             safe_rerun()
 
+
 # ---------------------------------------------------
 # BRANCH TIN & ADDRESS
 # ---------------------------------------------------
 
+
 def branch_tin_address():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("🏢 Branch TIN & Address")
 
     col1, col2, col3 = st.columns(3)
@@ -944,7 +1182,7 @@ def branch_tin_address():
                 "UPDATED_ADDRESS",
                 "STATUS",
                 "DATE_OPEN",
-                "DATE_OF_CLOSURE"
+                "DATE_OF_CLOSURE",
             ]
             return pd.DataFrame(data, columns=columns)
 
@@ -960,7 +1198,7 @@ def branch_tin_address():
             df,
             num_rows="dynamic",
             use_container_width=True,
-            key=f"{key_prefix}_editor"
+            key=f"{key_prefix}_editor",
         )
 
         col_save, col_undo, col_refresh = st.columns(3)
@@ -1002,7 +1240,7 @@ def branch_tin_address():
                         "UPDATED_ADDRESS",
                         "STATUS",
                         "DATE_OPEN",
-                        "DATE_OF_CLOSURE"
+                        "DATE_OF_CLOSURE",
                     ],
                     update_cols=[
                         "COMPANY",
@@ -1014,8 +1252,8 @@ def branch_tin_address():
                         "UPDATED_ADDRESS",
                         "STATUS",
                         "DATE_OPEN",
-                        "DATE_OF_CLOSURE"
-                    ]
+                        "DATE_OF_CLOSURE",
+                    ],
                 )
                 load_branch_tin.clear()
                 st.session_state[orig_key] = load_branch_tin(st.session_state.company)
@@ -1043,8 +1281,8 @@ def branch_tin_address():
                         "UPDATED_ADDRESS",
                         "STATUS",
                         "DATE_OPEN",
-                        "DATE_OF_CLOSURE"
-                    ]
+                        "DATE_OF_CLOSURE",
+                    ],
                 )
                 if ok:
                     load_branch_tin.clear()
@@ -1060,19 +1298,29 @@ def branch_tin_address():
                 st.session_state[orig_key] = load_branch_tin(st.session_state.company)
                 safe_rerun()
 
+
 # ---------------------------------------------------
 # BUSINESS PERMITS (UPDATE-ONLY, NO DELETE)
 # ---------------------------------------------------
 
+
 def business_permits():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("🏢 Business Permits Report")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Overview",
-        "Business Permit",
-        "Brgy Permit",
-        "Other Fees for Renew"
-    ])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "Overview",
+            "Business Permit",
+            "Brgy Permit",
+            "Other Fees for Renew",
+        ]
+    )
 
     # OVERVIEW
     with tab1:
@@ -1089,7 +1337,7 @@ def business_permits():
             "BRGY_PERMIT_2025",
             "BUSINESS_PERMIT_2025",
             "SEC_CERT",
-            "GROSS_SALES_CERT"
+            "GROSS_SALES_CERT",
         ]
         df = pd.DataFrame(data, columns=columns)
         st.dataframe(df, use_container_width=True)
@@ -1112,7 +1360,7 @@ def business_permits():
             "TREASURY",
             "STATUS",
             "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING"
+            "SUBMISSION_TO_ACCOUNTING",
         ]
         df = pd.DataFrame(data, columns=columns)
 
@@ -1120,7 +1368,7 @@ def business_permits():
             df,
             num_rows="dynamic",
             use_container_width=True,
-            key="business_permit_editor"
+            key="business_permit_editor",
         )
 
         if st.button("💾 Save Business Permit", key="save_business_permit"):
@@ -1152,8 +1400,8 @@ def business_permits():
                         row["SUBMISSION_TO_ACCOUNTING"],
                         row["COMPANY"],
                         row["AREA"],
-                        row["BRANCH"]
-                    )
+                        row["BRANCH"],
+                    ),
                 )
             conn.commit()
             st.success("Business Permit Updated")
@@ -1176,7 +1424,7 @@ def business_permits():
             "TREASURY",
             "STATUS",
             "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING"
+            "SUBMISSION_TO_ACCOUNTING",
         ]
         df = pd.DataFrame(data, columns=columns)
 
@@ -1184,7 +1432,7 @@ def business_permits():
             df,
             num_rows="dynamic",
             use_container_width=True,
-            key="brgy_permit_editor"
+            key="brgy_permit_editor",
         )
 
         if st.button("💾 Save Brgy Permit", key="save_brgy_permit"):
@@ -1216,8 +1464,8 @@ def business_permits():
                         row["SUBMISSION_TO_ACCOUNTING"],
                         row["COMPANY"],
                         row["AREA"],
-                        row["BRANCH"]
-                    )
+                        row["BRANCH"],
+                    ),
                 )
             conn.commit()
             st.success("Barangay Permit Updated")
@@ -1240,7 +1488,7 @@ def business_permits():
             "TREASURY",
             "STATUS",
             "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING"
+            "SUBMISSION_TO_ACCOUNTING",
         ]
         df = pd.DataFrame(data, columns=columns)
 
@@ -1248,7 +1496,7 @@ def business_permits():
             df,
             num_rows="dynamic",
             use_container_width=True,
-            key="other_fees_editor"
+            key="other_fees_editor",
         )
 
         if st.button("💾 Save Other Fees", key="save_other_fees"):
@@ -1280,17 +1528,25 @@ def business_permits():
                         row["SUBMISSION_TO_ACCOUNTING"],
                         row["COMPANY"],
                         row["AREA"],
-                        row["BRANCH"]
-                    )
+                        row["BRANCH"],
+                    ),
                 )
             conn.commit()
             st.success("Other Fees Updated")
+
 
 # ---------------------------------------------------
 # TAX MAPPED
 # ---------------------------------------------------
 
+
 def tax_mapped():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("🏷 TAX MAPPED Report")
 
     @st.cache_data(ttl=30, show_spinner=False)
@@ -1303,7 +1559,7 @@ def tax_mapped():
             "BRANCH",
             "DATE_TAX_MAPPED",
             "BIR_REMARKS",
-            "STICKER_IMAGE"
+            "STICKER_IMAGE",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -1316,7 +1572,7 @@ def tax_mapped():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="tax_mapped_editor"
+        key="tax_mapped_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -1346,14 +1602,14 @@ def tax_mapped():
                     "AREA",
                     "BRANCH",
                     "DATE_TAX_MAPPED",
-                    "BIR_REMARKS"
+                    "BIR_REMARKS",
                 ],
                 update_cols=[
                     "AREA",
                     "BRANCH",
                     "DATE_TAX_MAPPED",
-                    "BIR_REMARKS"
-                ]
+                    "BIR_REMARKS",
+                ],
             )
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
@@ -1376,8 +1632,8 @@ def tax_mapped():
                     "BRANCH",
                     "DATE_TAX_MAPPED",
                     "BIR_REMARKS",
-                    "STICKER_IMAGE"
-                ]
+                    "STICKER_IMAGE",
+                ],
             )
             if ok:
                 load_tax_mapped.clear()
@@ -1396,13 +1652,14 @@ def tax_mapped():
     # IMAGE UPLOAD
     st.subheader("Upload Tax Mapped Sticker (Optional)")
 
-    row_id = st.number_input("Enter Row ID", step=1)
+    row_id = st.number_input("Enter Row ID", step=1, min_value=1)
     uploaded_file = st.file_uploader("Upload Sticker Image")
 
     if uploaded_file is not None:
         st.image(uploaded_file, width=250)
 
-        file_path = f"images/{uploaded_file.name}"
+        os.makedirs("images", exist_ok=True)
+        file_path = os.path.join("images", uploaded_file.name)
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
@@ -1412,30 +1669,47 @@ def tax_mapped():
             SET STICKER_IMAGE = %s
             WHERE ID = %s
             """,
-            (file_path, row_id)
+            (file_path, int(row_id)),
         )
         conn.commit()
         st.success("Sticker uploaded successfully")
+
 
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
 
+
 def secretary_certificates():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📄 Secretary Certificates Compliance")
 
     @st.cache_data(ttl=30, show_spinner=False)
     def load_sec():
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
                 ID, AREA, MONTH_YEAR, BRANCH, REMARKS,
                 DATE_FORWARDED, STATUS, DATE_RECEIVED, FINAL_STATUS
             FROM SECRETARY_CERTIFICATES
-        """)
+        """
+        )
         data = cursor.fetchall()
         columns = [
-            "ID","AREA","MONTH_YEAR","BRANCH","REMARKS",
-            "DATE_FORWARDED","STATUS","DATE_RECEIVED","FINAL_STATUS"
+            "ID",
+            "AREA",
+            "MONTH_YEAR",
+            "BRANCH",
+            "REMARKS",
+            "DATE_FORWARDED",
+            "STATUS",
+            "DATE_RECEIVED",
+            "FINAL_STATUS",
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -1448,7 +1722,7 @@ def secretary_certificates():
         df,
         num_rows="dynamic",
         use_container_width=True,
-        key="sec_editor"
+        key="sec_editor",
     )
 
     col_save, col_undo, col_refresh = st.columns(3)
@@ -1488,7 +1762,7 @@ def secretary_certificates():
                     "DATE_FORWARDED",
                     "STATUS",
                     "DATE_RECEIVED",
-                    "FINAL_STATUS"
+                    "FINAL_STATUS",
                 ],
                 update_cols=[
                     "AREA",
@@ -1498,8 +1772,8 @@ def secretary_certificates():
                     "DATE_FORWARDED",
                     "STATUS",
                     "DATE_RECEIVED",
-                    "FINAL_STATUS"
-                ]
+                    "FINAL_STATUS",
+                ],
             )
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
@@ -1526,8 +1800,8 @@ def secretary_certificates():
                     "DATE_FORWARDED",
                     "STATUS",
                     "DATE_RECEIVED",
-                    "FINAL_STATUS"
-                ]
+                    "FINAL_STATUS",
+                ],
             )
             if ok:
                 load_sec.clear()
@@ -1544,11 +1818,19 @@ def secretary_certificates():
             st.session_state.sec_orig = load_sec()
             safe_rerun()
 
+
 # ---------------------------------------------------
-# DASHBOARD
+# DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
 
+
 def dashboard_analytics():
+    global conn, cursor
+
+    if conn is None or cursor is None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
     st.title("📊 Compliance Dashboard")
 
     powerbi_url = "https://app.powerbi.com/view?r=eyJrIjoiNmZhOGI5NjAtN2FjMC00NGUyLWFjOGUtMmFhYjg4NGY0ZThkIiwidCI6ImRmODY3OWNkLWE4MGUtNDVkOC05OWFjLWM4M2VkN2ZmOTVhMCJ9"
@@ -1557,40 +1839,44 @@ def dashboard_analytics():
         powerbi_url,
         height=900,
         width=1600,
-        scrolling=True
+        scrolling=True,
     )
 
     # BUSINESS PERMIT STATUS CHART
-    cursor.execute("""
+    cursor.execute(
+        """
     SELECT STATUS, COUNT(*)
     FROM BUSINESS_PERMIT
     GROUP BY STATUS
-    """)
+    """
+    )
     data = cursor.fetchall()
     df = pd.DataFrame(data, columns=["STATUS", "COUNT"])
     fig = px.pie(
         df,
         values="COUNT",
         names="STATUS",
-        title="Business Permit Status"
+        title="Business Permit Status",
     )
     st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
 
     # COMPLIANCE BY AREA
-    cursor.execute("""
+    cursor.execute(
+        """
     SELECT AREA, COUNT(*)
     FROM BRANCH_TIN_ADDRESS
     GROUP BY AREA
-    """)
+    """
+    )
     data = cursor.fetchall()
     df = pd.DataFrame(data, columns=["AREA", "COUNT"])
     fig = px.bar(
         df,
         x="AREA",
         y="COUNT",
-        title="Branches by Area"
+        title="Branches by Area",
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1599,19 +1885,63 @@ def dashboard_analytics():
     # PENDING COMPLIANCE TABLE
     st.subheader("Pending Business Permits")
 
-    cursor.execute("""
+    cursor.execute(
+        """
     SELECT COMPANY, AREA, BRANCH, STATUS
     FROM BUSINESS_PERMIT
     WHERE STATUS!='DONE'
-    """)
+    """
+    )
     data = cursor.fetchall()
     df = pd.DataFrame(data, columns=["COMPANY", "AREA", "BRANCH", "STATUS"])
     st.dataframe(df, use_container_width=True)
 
-def dashboard():
-    st_autorefresh(interval=5000, key="clock_refresh")
 
-    live_clock()
+# ---------------------------------------------------
+# MAIN DASHBOARD PAGE (sidebar navigation)
+# ---------------------------------------------------
+
+
+def dashboard():
+    def live_clock_js():
+        st.markdown(
+            """
+    <div id="clock" style="
+        background:#3d5960;
+        padding:18px;
+        border-radius:20px;
+        text-align:center;
+        font-size:20px;
+        font-weight:bold;
+        color:white;">
+    </div>
+
+    <script>
+    function updateClock() {
+        const now = new Date();
+
+        const options = {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        };
+
+        const date = now.toLocaleDateString('en-US', options);
+        const time = now.toLocaleTimeString();
+
+        document.getElementById('clock').innerHTML = date + " | " + time;
+    }
+
+    setInterval(updateClock, 1000);
+    updateClock();
+    </script>
+    """,
+            unsafe_allow_html=True,
+        )
+
+    # show JS-based clock at top of dashboard
+    live_clock_js()
 
     st.sidebar.title("📊 Compliance Menu")
 
@@ -1629,11 +1959,11 @@ def dashboard():
             "TIN & Address",
             "Tax Mapped",
             "AI Compliance Copilot",
-            "Admin Panel"
-        ]
+            "Admin Panel",
+        ],
     )
 
-    # ✅ FIXED LOGGING (proper indent)
+    # logging once per session
     if "last_log" not in st.session_state:
         log_activity(menu, "OPEN_PAGE")
         st.session_state.last_log = datetime.now()
@@ -1668,6 +1998,7 @@ def dashboard():
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.page = "login"
+
 
 # ---------------------------------------------------
 # PAGE ROUTING
