@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 import snowflake.connector
 from datetime import datetime
@@ -6,6 +7,7 @@ from streamlit_lottie import st_lottie
 import pandas as pd
 import plotly.express as px
 from openai import OpenAI
+from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------
 # PAGE CONFIG
@@ -112,11 +114,11 @@ if "page" not in st.session_state:
     st.session_state.page = "login"
 
 # ---------------------------------------------------
-# LIVE CLOCK
+# LIVE CLOCK (single render; auto-refresh handles updates)
 # ---------------------------------------------------
 
 def live_clock():
-    now = datetime.now().strftime("%A, %B %d %Y  |  %H:%M:%S")
+    now = datetime.now().strftime("%A, %B %d %Y | %H:%M:%S")
     st.markdown(
         f"""
         <div class="clock-box">
@@ -134,7 +136,6 @@ def safe_rerun():
     try:
         st.rerun()
     except AttributeError:
-        # Older Streamlit versions
         st.experimental_rerun()
 
 # ---------------------------------------------------
@@ -143,16 +144,6 @@ def safe_rerun():
 
 def handle_save_with_id(df_name_prefix, table_name, df, id_col,
                         insert_sql, update_sql, insert_cols, update_cols):
-    """
-    df_name_prefix: short key prefix for session_state (e.g., 'atp', 'tax_mapped')
-    table_name: DB table name for DELETE
-    df: edited DataFrame
-    id_col: column name of ID (e.g., 'ID')
-    insert_sql: INSERT statement with placeholders
-    update_sql: UPDATE statement with placeholders
-    insert_cols: list of columns (in order) for INSERT placeholders
-    update_cols: list of columns (in order) for UPDATE placeholders, NOT including ID; ID is last placeholder in UPDATE
-    """
     orig_key = f"{df_name_prefix}_orig"
     deleted_key = f"{df_name_prefix}_deleted"
 
@@ -187,9 +178,6 @@ def handle_save_with_id(df_name_prefix, table_name, df, id_col,
 
 
 def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_with_id):
-    """
-    Undo last delete for ID-based tables.
-    """
     deleted_key = f"{df_name_prefix}_deleted"
     if deleted_key not in st.session_state:
         return False
@@ -205,6 +193,29 @@ def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_wit
     conn.commit()
     st.session_state[deleted_key] = pd.DataFrame()
     return True
+
+# ---------------------------------------------------
+# ACTIVITY LOG
+# ---------------------------------------------------
+
+def log_activity(page, action):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO USER_ACTIVITY_LOG
+            (EMAIL, PAGE, ACTION, TIMESTAMP)
+            VALUES (%s,%s,%s,%s)
+        """, (
+            st.session_state.get("user", "UNKNOWN"),
+            page,
+            action,
+            datetime.now()
+        ))
+        conn.commit()
+    except Exception:
+        # best-effort logging; ignore failures
+        pass
 
 # ---------------------------------------------------
 # LOGIN PAGE
@@ -266,6 +277,7 @@ def login():
             st.session_state.page = "register"
 
         st.markdown('</div>', unsafe_allow_html=True)
+        st.session_state.user = email
 
 # ---------------------------------------------------
 # REGISTER PAGE
@@ -599,7 +611,7 @@ def ai_copilot():
 
         TAX_MAPPED(AREA, BRANCH, DATE_TAX_MAPPED, BIR_REMARKS)
 
-        SECRETARY_CERTIFICATE(COMPANY, AREA, BRANCH, STATUS)
+        SECRETARY_CERTIFICATES(AREA, MONTH_YEAR, COMPANY, BRANCH, STATUS)
 
         BRANCH_TIN_ADDRESS(COMPANY, AREA, BRANCH_NAME)
         """
@@ -1401,6 +1413,7 @@ def tax_mapped():
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
+
 def secretary_certificates():
     st.title("📄 Secretary Certificates Compliance")
 
@@ -1421,7 +1434,6 @@ def secretary_certificates():
 
     df = load_sec()
 
-    # Store original for delete detection
     if "sec_orig" not in st.session_state:
         st.session_state.sec_orig = df.copy()
 
@@ -1434,13 +1446,12 @@ def secretary_certificates():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
-    # -----------------------------
-    # SAVE (insert / update / delete)
-    # -----------------------------
+    # SAVE
     with col_save:
         if st.button("💾 Save Changes", key="sec_save"):
+            log_activity("Secretary Certificates", "SAVE")
             handle_save_with_id(
-                df_name_prefix="sec",              # session_state keys: sec_orig, sec_deleted
+                df_name_prefix="sec",
                 table_name="SECRETARY_CERTIFICATES",
                 df=edited_df,
                 id_col="ID",
@@ -1488,9 +1499,7 @@ def secretary_certificates():
             st.success("Data saved successfully")
             safe_rerun()
 
-    # -----------------------------
     # UNDO DELETE
-    # -----------------------------
     with col_undo:
         if st.button("↩ Undo last delete", key="sec_undo"):
             ok = handle_undo_with_id(
@@ -1521,9 +1530,7 @@ def secretary_certificates():
             else:
                 st.info("Nothing to undo")
 
-    # -----------------------------
     # REFRESH
-    # -----------------------------
     with col_refresh:
         if st.button("🔄 Refresh", key="sec_refresh"):
             load_sec.clear()
@@ -1595,6 +1602,9 @@ def dashboard_analytics():
     st.dataframe(df, use_container_width=True)
 
 def dashboard():
+    # auto-refresh every 1s so the clock stays live
+    st_autorefresh(interval=1000, key="clock_refresh")
+
     live_clock()
 
     st.sidebar.title("📊 Compliance Menu")
@@ -1616,6 +1626,9 @@ def dashboard():
             "Admin Panel"
         ]
     )
+
+    # log page open
+    log_activity(menu, "OPEN_PAGE")
 
     if menu == "Dashboard":
         dashboard_analytics()
