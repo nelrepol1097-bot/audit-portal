@@ -114,7 +114,11 @@ def get_cursor():
 # ---------------------------------------------------
 
 password = st.secrets["snowflake"]["password"]
-client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+try:
+    client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+except Exception as e:
+    client = None
+    print("OpenAI init failed:", e)
 
 # ---------------------------------------------------
 # SESSION STATE
@@ -179,11 +183,7 @@ def handle_save_with_id(
     - Logs all changes to AUDIT_LOG via log_audit
     - Stores deleted rows in session_state for undo
     """
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
+    conn, cursor = get_cursor()
 
     # Ensure numeric IDs for comparison
     df_work = df.copy()
@@ -273,11 +273,7 @@ def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_wit
     Undo last delete for tables using handle_save_with_id.
     Restores from session_state[f"{prefix}_deleted"].
     """
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
+    conn, cursor = get_cursor()
 
     deleted_key = f"{df_name_prefix}_deleted"
     if deleted_key not in st.session_state:
@@ -302,11 +298,7 @@ def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_wit
 
 
 def log_activity(page, action):
-    global conn, cursor
-    try:
-        if conn is None or cursor is None:
-            conn = get_connection()
-            cursor = conn.cursor()
+    conn, cursor = get_cursor()
 
         cur = cursor
         cur.execute(
@@ -329,11 +321,7 @@ def log_activity(page, action):
 
 
 def log_audit(table, record_id, column, old, new, action):
-    global conn, cursor
-    try:
-        if conn is None or cursor is None:
-            conn = get_connection()
-            cursor = conn.cursor()
+    conn, cursor = get_cursor()
 
         cursor.execute(
             """
@@ -387,7 +375,7 @@ def send_alert(message):
 
 
 def login():
-    global conn, cursor
+    conn, cursor = get_cursor()
 
     live_clock()
 
@@ -457,7 +445,7 @@ def login():
 
 
 def register():
-    global conn, cursor
+   conn, cursor = get_cursor()
 
     live_clock()
 
@@ -492,7 +480,7 @@ def register():
 
 
 def admin_panel():
-    global conn, cursor
+   conn, cursor = get_cursor()
 
     if conn is None or cursor is None:
         conn = get_connection()
