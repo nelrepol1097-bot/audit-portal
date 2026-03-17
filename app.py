@@ -1566,7 +1566,7 @@ def business_permits():
             use_container_width=True,
             key=key,
             column_config={
-                "CAF": "CAF #",
+                "CAF": "CAF",
                 "PAYEE": "Payee",
                 "MODE_OF_PAYMENT": "Mode of Payment",
                 "AMOUNT": st.column_config.NumberColumn("Amount", format="%.2f"),
