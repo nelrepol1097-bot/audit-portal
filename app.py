@@ -2,7 +2,6 @@ import os
 import time
 import smtplib
 from datetime import datetime
-
 import pandas as pd
 import plotly.express as px
 import requests
@@ -113,12 +112,9 @@ def get_cursor():
 # AI CLIENT
 # ---------------------------------------------------
 
-password = st.secrets["snowflake"]["password"]
-try:
-    client = OpenAI(api_key=st.secrets["openai"]["api_key"])
-except Exception as e:
-    client = None
-    print("OpenAI init failed:", e)
+password=st.secrets["snowflake"]["password"]
+client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
 
 # ---------------------------------------------------
 # SESSION STATE
@@ -298,15 +294,15 @@ def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_wit
 
 
 def log_activity(page, action):
-    conn, cursor = get_cursor()
+    try:
+        conn, cursor = get_cursor()
 
-        cur = cursor
-        cur.execute(
+        cursor.execute(
             """
             INSERT INTO USER_ACTIVITY_LOG
             (EMAIL, PAGE, ACTION, TIMESTAMP)
             VALUES (%s,%s,%s,%s)
-        """,
+            """,
             (
                 st.session_state.get("user", "UNKNOWN"),
                 page,
@@ -314,21 +310,23 @@ def log_activity(page, action):
                 datetime.now(),
             ),
         )
+
         conn.commit()
+
     except Exception:
-        # best-effort logging; ignore failures
         pass
 
 
 def log_audit(table, record_id, column, old, new, action):
-    conn, cursor = get_cursor()
+    try:
+        conn, cursor = get_cursor()
 
         cursor.execute(
             """
-        INSERT INTO AUDIT_LOG
-        (USER_EMAIL,TABLE_NAME,RECORD_ID,COLUMN_NAME,OLD_VALUE,NEW_VALUE,ACTION,TIMESTAMP)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-        """,
+            INSERT INTO AUDIT_LOG
+            (USER_EMAIL,TABLE_NAME,RECORD_ID,COLUMN_NAME,OLD_VALUE,NEW_VALUE,ACTION,TIMESTAMP)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
             (
                 st.session_state.get("user", "UNKNOWN"),
                 table,
@@ -342,8 +340,8 @@ def log_audit(table, record_id, column, old, new, action):
         )
 
         conn.commit()
+
     except Exception:
-        # best-effort audit; ignore failures
         pass
 
 
@@ -445,7 +443,7 @@ def login():
 
 
 def register():
-   conn, cursor = get_cursor()
+    conn, cursor = get_cursor()
 
     live_clock()
 
@@ -480,7 +478,7 @@ def register():
 
 
 def admin_panel():
-   conn, cursor = get_cursor()
+    conn, cursor = get_cursor()
 
     if conn is None or cursor is None:
         conn = get_connection()
