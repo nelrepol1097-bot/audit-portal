@@ -92,30 +92,22 @@ lottie_login = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikw
 # ---------------------------------------------------
 
 
+@st.cache_resource
 def get_connection():
-    try:
-        return snowflake.connector.connect(
-            user="jmcasaria",
-            password=st.secrets["snowflake"]["password"],
-            account="NSXAGQQ-WJ05543",
-            warehouse="COMPUTE_WH",
-            database="CFB_ANALYST_JAKE_DB",
-            schema="PUBLIC",
-            role="ANALYST_JAKE_ROLE",
-        )
-    except Exception as e:
-        st.error(f"Connection failed: {e}")
-        st.stop()
+    return snowflake.connector.connect(
+        user="jmcasaria",
+        password=st.secrets["snowflake"]["password"],
+        account="NSXAGQQ-WJ05543",
+        warehouse="COMPUTE_WH",
+        database="CFB_ANALYST_JAKE_DB",
+        schema="PUBLIC",
+        role="ANALYST_JAKE_ROLE",
+    )
 
 
-# create global connection + cursor
-try:
+def get_cursor():
     conn = get_connection()
-    cursor = conn.cursor()
-except Exception as e:
-    st.error(f"Failed to initialize database cursor: {e}")
-    conn = None
-    cursor = None
+    return conn, conn.cursor()
 
 # ---------------------------------------------------
 # AI CLIENT
@@ -554,18 +546,18 @@ def admin_panel():
 
 
 def atp_certificates():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📄 ATP Certificates Compliance")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED + NO GLOBAL CURSOR)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_atp():
+        conn, cursor = get_cursor()
+
         cursor.execute("SELECT * FROM ATP_CERTIFICATES")
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "COMPANY",
@@ -576,13 +568,20 @@ def atp_certificates():
             "BIR_DATE_RECEIVED_LAST_STAMP",
             "STATUS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_atp()
 
+    # ---------------------------------------------------
+    # STORE ORIGINAL DATA (FOR AUDIT + DELETE DETECTION)
+    # ---------------------------------------------------
     if "atp_orig" not in st.session_state:
         st.session_state.atp_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -592,8 +591,12 @@ def atp_certificates():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
         if st.button("💾 Save Changes", key="atp_save"):
+
             handle_save_with_id(
                 df_name_prefix="atp",
                 table_name="ATP_CERTIFICATES",
@@ -638,13 +641,19 @@ def atp_certificates():
                     "STATUS",
                 ],
             )
+
             load_atp.clear()
             st.session_state.atp_orig = load_atp()
-            st.success("Data saved successfully")
+
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
         if st.button("↩ Undo last delete", key="atp_undo"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="atp",
                 table_name="ATP_CERTIFICATES",
@@ -667,14 +676,19 @@ def atp_certificates():
                     "STATUS",
                 ],
             )
+
             if ok:
                 load_atp.clear()
                 st.session_state.atp_orig = load_atp()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
         if st.button("🔄 Refresh", key="atp_refresh"):
             load_atp.clear()
@@ -688,18 +702,18 @@ def atp_certificates():
 
 
 def bir_1906_atp():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📄 BIR 1906 ATP")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_bir():
+        conn, cursor = get_cursor()
+
         cursor.execute("SELECT * FROM BIR_1906_ATP")
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "COMPANY",
@@ -708,13 +722,20 @@ def bir_1906_atp():
             "BIR_DATE_RECEIVED",
             "STATUS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_bir()
 
+    # ---------------------------------------------------
+    # STORE ORIGINAL DATA
+    # ---------------------------------------------------
     if "bir1906_orig" not in st.session_state:
         st.session_state.bir1906_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -724,8 +745,12 @@ def bir_1906_atp():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
         if st.button("💾 Save Changes", key="bir1906_save"):
+
             handle_save_with_id(
                 df_name_prefix="bir1906",
                 table_name="BIR_1906_ATP",
@@ -761,13 +786,19 @@ def bir_1906_atp():
                     "STATUS",
                 ],
             )
+
             load_bir.clear()
             st.session_state.bir1906_orig = load_bir()
-            st.success("Data saved successfully")
+
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
         if st.button("↩ Undo last delete", key="bir1906_undo"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="bir1906",
                 table_name="BIR_1906_ATP",
@@ -785,14 +816,19 @@ def bir_1906_atp():
                     "STATUS",
                 ],
             )
+
             if ok:
                 load_bir.clear()
                 st.session_state.bir1906_orig = load_bir()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
         if st.button("🔄 Refresh", key="bir1906_refresh"):
             load_bir.clear()
@@ -806,12 +842,6 @@ def bir_1906_atp():
 
 
 def ai_copilot():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("🤖 Compliance AI Copilot")
 
     st.write("Ask questions about your compliance data.")
@@ -821,6 +851,9 @@ def ai_copilot():
     if question:
         st.chat_message("user").write(question)
 
+        # ---------------------------------------------------
+        # SCHEMA CONTEXT (SAFE)
+        # ---------------------------------------------------
         schema = """
         DATABASE TABLES:
 
@@ -837,12 +870,19 @@ def ai_copilot():
         BRANCH_TIN_ADDRESS(COMPANY, AREA, BRANCH_NAME)
         """
 
+        # ---------------------------------------------------
+        # AI PROMPT (STRICT SQL ONLY)
+        # ---------------------------------------------------
         prompt = f"""
         You are a compliance data analyst.
 
-        Convert the question into a Snowflake SQL query.
+        Convert the question into a SAFE Snowflake SQL query.
 
-        Only use SELECT queries.
+        RULES:
+        - ONLY SELECT statements
+        - NO DELETE, UPDATE, INSERT, DROP
+        - NO semicolons (;)
+        - LIMIT results to 100 rows
 
         Database schema:
         {schema}
@@ -853,6 +893,9 @@ def ai_copilot():
         Return SQL only.
         """
 
+        # ---------------------------------------------------
+        # GENERATE SQL
+        # ---------------------------------------------------
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
@@ -860,10 +903,35 @@ def ai_copilot():
 
         sql_query = response.choices[0].message.content.strip()
 
+        # ---------------------------------------------------
+        # SECURITY CHECK (VERY IMPORTANT 🔐)
+        # ---------------------------------------------------
+        forbidden = ["DELETE", "UPDATE", "INSERT", "DROP", "ALTER"]
+
+        if any(word in sql_query.upper() for word in forbidden):
+            st.error("❌ Unsafe query detected!")
+            return
+
+        if not sql_query.strip().upper().startswith("SELECT"):
+            st.error("❌ Only SELECT queries are allowed")
+            return
+
+        # enforce LIMIT
+        if "LIMIT" not in sql_query.upper():
+            sql_query += " LIMIT 100"
+
+        # ---------------------------------------------------
+        # DISPLAY SQL
+        # ---------------------------------------------------
         st.subheader("Generated SQL")
         st.code(sql_query)
 
+        # ---------------------------------------------------
+        # EXECUTE QUERY (SAFE CONNECTION)
+        # ---------------------------------------------------
         try:
+            conn, cursor = get_cursor()
+
             cursor.execute(sql_query)
             data = cursor.fetchall()
 
@@ -872,9 +940,15 @@ def ai_copilot():
             st.subheader("Result")
             st.dataframe(df, use_container_width=True)
 
+            # ---------------------------------------------------
+            # AUTO VISUALIZATION
+            # ---------------------------------------------------
             if len(df.columns) >= 2:
-                fig = px.bar(df, x=df.columns[0], y=df.columns[1])
-                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    fig = px.bar(df, x=df.columns[0], y=df.columns[1])
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    pass
 
         except Exception as e:
             st.error(f"Query failed: {e}")
@@ -886,18 +960,18 @@ def ai_copilot():
 
 
 def boa_sticker():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📄 BOA Sticker")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_boa():
+        conn, cursor = get_cursor()
+
         cursor.execute("SELECT * FROM BOA_STICKER")
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "COMPANY",
@@ -908,13 +982,20 @@ def boa_sticker():
             "DATE_FORWARDED_TO_BRANCH",
             "STATUS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_boa()
 
+    # ---------------------------------------------------
+    # STORE ORIGINAL DATA
+    # ---------------------------------------------------
     if "boa_orig" not in st.session_state:
         st.session_state.boa_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -924,8 +1005,12 @@ def boa_sticker():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
         if st.button("💾 Save Changes", key="boa_save"):
+
             handle_save_with_id(
                 df_name_prefix="boa",
                 table_name="BOA_STICKER",
@@ -967,13 +1052,19 @@ def boa_sticker():
                     "STATUS",
                 ],
             )
+
             load_boa.clear()
             st.session_state.boa_orig = load_boa()
-            st.success("Data saved successfully")
+
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
         if st.button("↩ Undo last delete", key="boa_undo"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="boa",
                 table_name="BOA_STICKER",
@@ -993,14 +1084,19 @@ def boa_sticker():
                     "STATUS",
                 ],
             )
+
             if ok:
                 load_boa.clear()
                 st.session_state.boa_orig = load_boa()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
         if st.button("🔄 Refresh", key="boa_refresh"):
             load_boa.clear()
@@ -1014,18 +1110,18 @@ def boa_sticker():
 
 
 def fire_safety():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📄 Fire Safety")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_fire():
+        conn, cursor = get_cursor()
+
         cursor.execute("SELECT * FROM FIRE_SAFETY")
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "COMPANY",
@@ -1035,13 +1131,20 @@ def fire_safety():
             "FSIC_FEE",
             "REMARKS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_fire()
 
+    # ---------------------------------------------------
+    # STORE ORIGINAL DATA
+    # ---------------------------------------------------
     if "fire_orig" not in st.session_state:
         st.session_state.fire_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1051,8 +1154,12 @@ def fire_safety():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
         if st.button("💾 Save Changes", key="fire_save"):
+
             handle_save_with_id(
                 df_name_prefix="fire",
                 table_name="FIRE_SAFETY",
@@ -1091,13 +1198,19 @@ def fire_safety():
                     "REMARKS",
                 ],
             )
+
             load_fire.clear()
             st.session_state.fire_orig = load_fire()
-            st.success("Data saved successfully")
+
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
         if st.button("↩ Undo last delete", key="fire_undo"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="fire",
                 table_name="FIRE_SAFETY",
@@ -1116,14 +1229,19 @@ def fire_safety():
                     "REMARKS",
                 ],
             )
+
             if ok:
                 load_fire.clear()
                 st.session_state.fire_orig = load_fire()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
         if st.button("🔄 Refresh", key="fire_refresh"):
             load_fire.clear()
@@ -1137,12 +1255,6 @@ def fire_safety():
 
 
 def branch_tin_address():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("🏢 Branch TIN & Address")
 
     col1, col2, col3 = st.columns(3)
@@ -1159,18 +1271,27 @@ def branch_tin_address():
         if st.button("FASTCASH Branch"):
             st.session_state.company = "FASTCASH"
 
+    # ---------------------------------------------------
+    # LOAD DATA WHEN COMPANY SELECTED
+    # ---------------------------------------------------
     if "company" in st.session_state:
-        st.subheader(f"{st.session_state.company} Branch List")
+
+        selected_company = st.session_state.company
+        st.subheader(f"{selected_company} Branch List")
 
         @st.cache_data(ttl=30, show_spinner=False)
         def load_branch_tin(company):
+            conn, cursor = get_cursor()
+
             query = """
             SELECT *
             FROM BRANCH_TIN_ADDRESS
             WHERE COMPANY = %s
             """
+
             cursor.execute(query, (company,))
             data = cursor.fetchall()
+
             columns = [
                 "ID",
                 "COMPANY",
@@ -1184,16 +1305,23 @@ def branch_tin_address():
                 "DATE_OPEN",
                 "DATE_OF_CLOSURE",
             ]
+
             return pd.DataFrame(data, columns=columns)
 
-        df = load_branch_tin(st.session_state.company)
+        df = load_branch_tin(selected_company)
 
-        key_prefix = f"branch_tin_{st.session_state.company.lower()}"
-
+        # ---------------------------------------------------
+        # SESSION STATE TRACKING
+        # ---------------------------------------------------
+        key_prefix = f"branch_tin_{selected_company.lower()}"
         orig_key = f"{key_prefix}_orig"
+
         if orig_key not in st.session_state:
             st.session_state[orig_key] = df.copy()
 
+        # ---------------------------------------------------
+        # DATA EDITOR
+        # ---------------------------------------------------
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
@@ -1203,8 +1331,12 @@ def branch_tin_address():
 
         col_save, col_undo, col_refresh = st.columns(3)
 
+        # ---------------------------------------------------
+        # SAVE
+        # ---------------------------------------------------
         with col_save:
             if st.button("💾 Save Changes", key=f"{key_prefix}_save"):
+
                 handle_save_with_id(
                     df_name_prefix=key_prefix,
                     table_name="BRANCH_TIN_ADDRESS",
@@ -1255,13 +1387,19 @@ def branch_tin_address():
                         "DATE_OF_CLOSURE",
                     ],
                 )
+
                 load_branch_tin.clear()
-                st.session_state[orig_key] = load_branch_tin(st.session_state.company)
-                st.success("Data saved successfully")
+                st.session_state[orig_key] = load_branch_tin(selected_company)
+
+                st.success("Data saved successfully ✅")
                 safe_rerun()
 
+        # ---------------------------------------------------
+        # UNDO DELETE
+        # ---------------------------------------------------
         with col_undo:
             if st.button("↩ Undo last delete", key=f"{key_prefix}_undo"):
+
                 ok = handle_undo_with_id(
                     df_name_prefix=key_prefix,
                     table_name="BRANCH_TIN_ADDRESS",
@@ -1284,50 +1422,46 @@ def branch_tin_address():
                         "DATE_OF_CLOSURE",
                     ],
                 )
+
                 if ok:
                     load_branch_tin.clear()
-                    st.session_state[orig_key] = load_branch_tin(st.session_state.company)
-                    st.success("Delete undone")
+                    st.session_state[orig_key] = load_branch_tin(selected_company)
+
+                    st.success("Delete undone 🔄")
                     safe_rerun()
                 else:
                     st.info("Nothing to undo")
 
+        # ---------------------------------------------------
+        # REFRESH
+        # ---------------------------------------------------
         with col_refresh:
             if st.button("🔄 Refresh", key=f"{key_prefix}_refresh"):
                 load_branch_tin.clear()
-                st.session_state[orig_key] = load_branch_tin(st.session_state.company)
+                st.session_state[orig_key] = load_branch_tin(selected_company)
                 safe_rerun()
 
 
 # ---------------------------------------------------
 # BUSINESS PERMITS (UPDATE-ONLY, NO DELETE)
 # ---------------------------------------------------
-
-
 def business_permits():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("🏢 Business Permits Report")
 
     tab1, tab2, tab3, tab4 = st.tabs(
-        [
-            "Overview",
-            "Business Permit",
-            "Brgy Permit",
-            "Other Fees for Renew",
-        ]
+        ["Overview", "Business Permit", "Brgy Permit", "Other Fees for Renew"]
     )
 
+    # ---------------------------------------------------
     # OVERVIEW
+    # ---------------------------------------------------
     with tab1:
         st.subheader("Overview")
 
+        conn, cursor = get_cursor()
         cursor.execute("SELECT * FROM BUSINESS_PERMIT_OVERVIEW")
         data = cursor.fetchall()
+
         columns = [
             "COMPANY",
             "AREA",
@@ -1339,30 +1473,72 @@ def business_permits():
             "SEC_CERT",
             "GROSS_SALES_CERT",
         ]
+
         df = pd.DataFrame(data, columns=columns)
         st.dataframe(df, use_container_width=True)
 
+    # ---------------------------------------------------
+    # GENERIC LOADER (REUSABLE)
+    # ---------------------------------------------------
+    @st.cache_data(ttl=30)
+    def load_table(table_name):
+        conn, cursor = get_cursor()
+        cursor.execute(f"SELECT * FROM {table_name}")
+        return pd.DataFrame(cursor.fetchall())
+
+    # ---------------------------------------------------
+    # GENERIC UPDATE FUNCTION
+    # ---------------------------------------------------
+    def update_table(table_name, df):
+        conn, cursor = get_cursor()
+
+        for _, row in df.iterrows():
+            cursor.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    CAF=%s,
+                    PAYEE=%s,
+                    MODE_OF_PAYMENT=%s,
+                    AMOUNT=%s,
+                    ACCOUNTING=%s,
+                    TREASURY=%s,
+                    STATUS=%s,
+                    LIQUIDATION=%s,
+                    SUBMISSION_TO_ACCOUNTING=%s
+                WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
+                """,
+                (
+                    row["CAF"],
+                    row["PAYEE"],
+                    row["MODE_OF_PAYMENT"],
+                    row["AMOUNT"],
+                    row["ACCOUNTING"],
+                    row["TREASURY"],
+                    row["STATUS"],
+                    row["LIQUIDATION"],
+                    row["SUBMISSION_TO_ACCOUNTING"],
+                    row["COMPANY"],
+                    row["AREA"],
+                    row["BRANCH"],
+                ),
+            )
+
+        conn.commit()
+
+    # ---------------------------------------------------
     # BUSINESS PERMIT
+    # ---------------------------------------------------
     with tab2:
         st.subheader("Business Permit")
 
-        cursor.execute("SELECT * FROM BUSINESS_PERMIT")
-        data = cursor.fetchall()
-        columns = [
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "CAF",
-            "PAYEE",
-            "MODE_OF_PAYMENT",
-            "AMOUNT",
-            "ACCOUNTING",
-            "TREASURY",
-            "STATUS",
-            "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING",
+        df = load_table("BUSINESS_PERMIT")
+
+        df.columns = [
+            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
+            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
+            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
         ]
-        df = pd.DataFrame(data, columns=columns)
 
         edited_df = st.data_editor(
             df,
@@ -1371,62 +1547,25 @@ def business_permits():
             key="business_permit_editor",
         )
 
-        if st.button("💾 Save Business Permit", key="save_business_permit"):
-            for _, row in edited_df.iterrows():
-                cursor.execute(
-                    """
-                    UPDATE BUSINESS_PERMIT
-                    SET
-                        CAF=%s,
-                        PAYEE=%s,
-                        MODE_OF_PAYMENT=%s,
-                        AMOUNT=%s,
-                        ACCOUNTING=%s,
-                        TREASURY=%s,
-                        STATUS=%s,
-                        LIQUIDATION=%s,
-                        SUBMISSION_TO_ACCOUNTING=%s
-                    WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
-                    """,
-                    (
-                        row["CAF"],
-                        row["PAYEE"],
-                        row["MODE_OF_PAYMENT"],
-                        row["AMOUNT"],
-                        row["ACCOUNTING"],
-                        row["TREASURY"],
-                        row["STATUS"],
-                        row["LIQUIDATION"],
-                        row["SUBMISSION_TO_ACCOUNTING"],
-                        row["COMPANY"],
-                        row["AREA"],
-                        row["BRANCH"],
-                    ),
-                )
-            conn.commit()
-            st.success("Business Permit Updated")
+        if st.button("💾 Save Business Permit"):
+            update_table("BUSINESS_PERMIT", edited_df)
+            load_table.clear()
+            st.success("Business Permit Updated ✅")
+            safe_rerun()
 
+    # ---------------------------------------------------
     # BRGY PERMIT
+    # ---------------------------------------------------
     with tab3:
         st.subheader("Barangay Permit")
 
-        cursor.execute("SELECT * FROM BRGY_PERMIT")
-        data = cursor.fetchall()
-        columns = [
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "CAF",
-            "PAYEE",
-            "MODE_OF_PAYMENT",
-            "AMOUNT",
-            "ACCOUNTING",
-            "TREASURY",
-            "STATUS",
-            "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING",
+        df = load_table("BRGY_PERMIT")
+
+        df.columns = [
+            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
+            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
+            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
         ]
-        df = pd.DataFrame(data, columns=columns)
 
         edited_df = st.data_editor(
             df,
@@ -1435,62 +1574,25 @@ def business_permits():
             key="brgy_permit_editor",
         )
 
-        if st.button("💾 Save Brgy Permit", key="save_brgy_permit"):
-            for _, row in edited_df.iterrows():
-                cursor.execute(
-                    """
-                    UPDATE BRGY_PERMIT
-                    SET
-                        CAF=%s,
-                        PAYEE=%s,
-                        MODE_OF_PAYMENT=%s,
-                        AMOUNT=%s,
-                        ACCOUNTING=%s,
-                        TREASURY=%s,
-                        STATUS=%s,
-                        LIQUIDATION=%s,
-                        SUBMISSION_TO_ACCOUNTING=%s
-                    WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
-                    """,
-                    (
-                        row["CAF"],
-                        row["PAYEE"],
-                        row["MODE_OF_PAYMENT"],
-                        row["AMOUNT"],
-                        row["ACCOUNTING"],
-                        row["TREASURY"],
-                        row["STATUS"],
-                        row["LIQUIDATION"],
-                        row["SUBMISSION_TO_ACCOUNTING"],
-                        row["COMPANY"],
-                        row["AREA"],
-                        row["BRANCH"],
-                    ),
-                )
-            conn.commit()
-            st.success("Barangay Permit Updated")
+        if st.button("💾 Save Brgy Permit"):
+            update_table("BRGY_PERMIT", edited_df)
+            load_table.clear()
+            st.success("Barangay Permit Updated ✅")
+            safe_rerun()
 
+    # ---------------------------------------------------
     # OTHER FEES
+    # ---------------------------------------------------
     with tab4:
         st.subheader("Other Fees for Renew")
 
-        cursor.execute("SELECT * FROM OTHER_FEES_RENEW")
-        data = cursor.fetchall()
-        columns = [
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "CAF",
-            "PAYEE",
-            "MODE_OF_PAYMENT",
-            "AMOUNT",
-            "ACCOUNTING",
-            "TREASURY",
-            "STATUS",
-            "LIQUIDATION",
-            "SUBMISSION_TO_ACCOUNTING",
+        df = load_table("OTHER_FEES_RENEW")
+
+        df.columns = [
+            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
+            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
+            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
         ]
-        df = pd.DataFrame(data, columns=columns)
 
         edited_df = st.data_editor(
             df,
@@ -1499,60 +1601,28 @@ def business_permits():
             key="other_fees_editor",
         )
 
-        if st.button("💾 Save Other Fees", key="save_other_fees"):
-            for _, row in edited_df.iterrows():
-                cursor.execute(
-                    """
-                    UPDATE OTHER_FEES_RENEW
-                    SET
-                        CAF=%s,
-                        PAYEE=%s,
-                        MODE_OF_PAYMENT=%s,
-                        AMOUNT=%s,
-                        ACCOUNTING=%s,
-                        TREASURY=%s,
-                        STATUS=%s,
-                        LIQUIDATION=%s,
-                        SUBMISSION_TO_ACCOUNTING=%s
-                    WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
-                    """,
-                    (
-                        row["CAF"],
-                        row["PAYEE"],
-                        row["MODE_OF_PAYMENT"],
-                        row["AMOUNT"],
-                        row["ACCOUNTING"],
-                        row["TREASURY"],
-                        row["STATUS"],
-                        row["LIQUIDATION"],
-                        row["SUBMISSION_TO_ACCOUNTING"],
-                        row["COMPANY"],
-                        row["AREA"],
-                        row["BRANCH"],
-                    ),
-                )
-            conn.commit()
-            st.success("Other Fees Updated")
-
+        if st.button("💾 Save Other Fees"):
+            update_table("OTHER_FEES_RENEW", edited_df)
+            load_table.clear()
+            st.success("Other Fees Updated ✅")
+            safe_rerun()
 
 # ---------------------------------------------------
 # TAX MAPPED
 # ---------------------------------------------------
-
-
 def tax_mapped():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("🏷 TAX MAPPED Report")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_tax_mapped():
+        conn, cursor = get_cursor()
+
         cursor.execute("SELECT * FROM TAX_MAPPED")
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "AREA",
@@ -1561,13 +1631,20 @@ def tax_mapped():
             "BIR_REMARKS",
             "STICKER_IMAGE",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_tax_mapped()
 
+    # ---------------------------------------------------
+    # SESSION STATE
+    # ---------------------------------------------------
     if "tax_mapped_orig" not in st.session_state:
         st.session_state.tax_mapped_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1577,8 +1654,12 @@ def tax_mapped():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
-        if st.button("💾 Save Table", key="tax_mapped_save"):
+        if st.button("💾 Save Table"):
+
             handle_save_with_id(
                 df_name_prefix="tax_mapped",
                 table_name="TAX_MAPPED",
@@ -1611,13 +1692,19 @@ def tax_mapped():
                     "BIR_REMARKS",
                 ],
             )
+
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
-            st.success("Table Updated")
+
+            st.success("Table Updated ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
-        if st.button("↩ Undo last delete", key="tax_mapped_undo"):
+        if st.button("↩ Undo last delete"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="tax_mapped",
                 table_name="TAX_MAPPED",
@@ -1635,22 +1722,29 @@ def tax_mapped():
                     "STICKER_IMAGE",
                 ],
             )
+
             if ok:
                 load_tax_mapped.clear()
                 st.session_state.tax_mapped_orig = load_tax_mapped()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
-        if st.button("🔄 Refresh", key="tax_mapped_refresh"):
+        if st.button("🔄 Refresh"):
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
             safe_rerun()
 
-    # IMAGE UPLOAD
-    st.subheader("Upload Tax Mapped Sticker (Optional)")
+    # ---------------------------------------------------
+    # IMAGE UPLOAD (STORE IN SNOWFLAKE ❗)
+    # ---------------------------------------------------
+    st.subheader("Upload Tax Mapped Sticker")
 
     row_id = st.number_input("Enter Row ID", step=1, min_value=1)
     uploaded_file = st.file_uploader("Upload Sticker Image")
@@ -1658,10 +1752,9 @@ def tax_mapped():
     if uploaded_file is not None:
         st.image(uploaded_file, width=250)
 
-        os.makedirs("images", exist_ok=True)
-        file_path = os.path.join("images", uploaded_file.name)
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        file_bytes = uploaded_file.getvalue()
+
+        conn, cursor = get_cursor()
 
         cursor.execute(
             """
@@ -1669,28 +1762,27 @@ def tax_mapped():
             SET STICKER_IMAGE = %s
             WHERE ID = %s
             """,
-            (file_path, int(row_id)),
+            (file_bytes, int(row_id)),
         )
+
         conn.commit()
-        st.success("Sticker uploaded successfully")
+
+        st.success("Sticker uploaded to database ✅")
 
 
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
-
-
 def secretary_certificates():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📄 Secretary Certificates Compliance")
 
+    # ---------------------------------------------------
+    # LOAD DATA (SAFE + CACHED)
+    # ---------------------------------------------------
     @st.cache_data(ttl=30, show_spinner=False)
     def load_sec():
+        conn, cursor = get_cursor()
+
         cursor.execute(
             """
             SELECT
@@ -1699,7 +1791,9 @@ def secretary_certificates():
             FROM SECRETARY_CERTIFICATES
         """
         )
+
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "AREA",
@@ -1711,13 +1805,20 @@ def secretary_certificates():
             "DATE_RECEIVED",
             "FINAL_STATUS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_sec()
 
+    # ---------------------------------------------------
+    # SESSION STATE
+    # ---------------------------------------------------
     if "sec_orig" not in st.session_state:
         st.session_state.sec_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1727,10 +1828,14 @@ def secretary_certificates():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
     # SAVE
+    # ---------------------------------------------------
     with col_save:
-        if st.button("💾 Save Changes", key="sec_save"):
+        if st.button("💾 Save Changes"):
+
             log_activity("Secretary Certificates", "SAVE")
+
             handle_save_with_id(
                 df_name_prefix="sec",
                 table_name="SECRETARY_CERTIFICATES",
@@ -1775,14 +1880,19 @@ def secretary_certificates():
                     "FINAL_STATUS",
                 ],
             )
+
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
-            st.success("Data saved successfully")
+
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
     # UNDO DELETE
+    # ---------------------------------------------------
     with col_undo:
-        if st.button("↩ Undo last delete", key="sec_undo"):
+        if st.button("↩ Undo last delete"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="sec",
                 table_name="SECRETARY_CERTIFICATES",
@@ -1803,36 +1913,33 @@ def secretary_certificates():
                     "FINAL_STATUS",
                 ],
             )
+
             if ok:
                 load_sec.clear()
                 st.session_state.sec_orig = load_sec()
-                st.success("Delete undone")
+
+                st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
     # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
-        if st.button("🔄 Refresh", key="sec_refresh"):
+        if st.button("🔄 Refresh"):
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
             safe_rerun()
-
-
 # ---------------------------------------------------
 # DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
-
-
 def dashboard_analytics():
-    global conn, cursor
-
-    if conn is None or cursor is None:
-        conn = get_connection()
-        cursor = conn.cursor()
-
     st.title("📊 Compliance Dashboard")
 
+    # ---------------------------------------------------
+    # POWER BI EMBED
+    # ---------------------------------------------------
     powerbi_url = "https://app.powerbi.com/view?r=eyJrIjoiNmZhOGI5NjAtN2FjMC00NGUyLWFjOGUtMmFhYjg4NGY0ZThkIiwidCI6ImRmODY3OWNkLWE4MGUtNDVkOC05OWFjLWM4M2VkN2ZmOTVhMCJ9"
 
     st.components.v1.iframe(
@@ -1842,107 +1949,128 @@ def dashboard_analytics():
         scrolling=True,
     )
 
-    # BUSINESS PERMIT STATUS CHART
-    cursor.execute(
-        """
-    SELECT STATUS, COUNT(*)
-    FROM BUSINESS_PERMIT
-    GROUP BY STATUS
-    """
-    )
-    data = cursor.fetchall()
-    df = pd.DataFrame(data, columns=["STATUS", "COUNT"])
-    fig = px.pie(
-        df,
+    st.divider()
+
+    # ---------------------------------------------------
+    # CACHED DATA LOADERS (FAST ⚡)
+    # ---------------------------------------------------
+    @st.cache_data(ttl=30)
+    def load_business_status():
+        conn, cursor = get_cursor()
+        cursor.execute("""
+            SELECT STATUS, COUNT(*)
+            FROM BUSINESS_PERMIT
+            GROUP BY STATUS
+        """)
+        return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
+
+    @st.cache_data(ttl=30)
+    def load_area_distribution():
+        conn, cursor = get_cursor()
+        cursor.execute("""
+            SELECT AREA, COUNT(*)
+            FROM BRANCH_TIN_ADDRESS
+            GROUP BY AREA
+        """)
+        return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
+
+    @st.cache_data(ttl=30)
+    def load_pending():
+        conn, cursor = get_cursor()
+        cursor.execute("""
+            SELECT COMPANY, AREA, BRANCH, STATUS
+            FROM BUSINESS_PERMIT
+            WHERE STATUS!='DONE'
+        """)
+        return pd.DataFrame(cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"])
+
+    # ---------------------------------------------------
+    # BUSINESS STATUS CHART
+    # ---------------------------------------------------
+    df_status = load_business_status()
+
+    fig1 = px.pie(
+        df_status,
         values="COUNT",
         names="STATUS",
         title="Business Permit Status",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig1, use_container_width=True)
 
     st.divider()
 
-    # COMPLIANCE BY AREA
-    cursor.execute(
-        """
-    SELECT AREA, COUNT(*)
-    FROM BRANCH_TIN_ADDRESS
-    GROUP BY AREA
-    """
-    )
-    data = cursor.fetchall()
-    df = pd.DataFrame(data, columns=["AREA", "COUNT"])
-    fig = px.bar(
-        df,
+    # ---------------------------------------------------
+    # AREA DISTRIBUTION
+    # ---------------------------------------------------
+    df_area = load_area_distribution()
+
+    fig2 = px.bar(
+        df_area,
         x="AREA",
         y="COUNT",
         title="Branches by Area",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True)
 
     st.divider()
 
-    # PENDING COMPLIANCE TABLE
+    # ---------------------------------------------------
+    # PENDING TABLE
+    # ---------------------------------------------------
     st.subheader("Pending Business Permits")
 
-    cursor.execute(
-        """
-    SELECT COMPANY, AREA, BRANCH, STATUS
-    FROM BUSINESS_PERMIT
-    WHERE STATUS!='DONE'
-    """
-    )
-    data = cursor.fetchall()
-    df = pd.DataFrame(data, columns=["COMPANY", "AREA", "BRANCH", "STATUS"])
-    st.dataframe(df, use_container_width=True)
-
-
+    df_pending = load_pending()
+    st.dataframe(df_pending, use_container_width=True)
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
 # ---------------------------------------------------
-
-
 def dashboard():
+
+    # ---------------------------------------------------
+    # ZERO-LAG JS CLOCK (NO RERUN ✅)
+    # ---------------------------------------------------
     def live_clock_js():
         st.markdown(
             """
-    <div id="clock" style="
-        background:#3d5960;
-        padding:18px;
-        border-radius:20px;
-        text-align:center;
-        font-size:20px;
-        font-weight:bold;
-        color:white;">
-    </div>
+        <div id="clock" style="
+            background:#3d5960;
+            padding:18px;
+            border-radius:20px;
+            text-align:center;
+            font-size:20px;
+            font-weight:bold;
+            color:white;">
+        </div>
 
-    <script>
-    function updateClock() {
-        const now = new Date();
+        <script>
+        function updateClock() {
+            const now = new Date();
 
-        const options = {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        };
+            const options = {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            };
 
-        const date = now.toLocaleDateString('en-US', options);
-        const time = now.toLocaleTimeString();
+            const date = now.toLocaleDateString('en-US', options);
+            const time = now.toLocaleTimeString();
 
-        document.getElementById('clock').innerHTML = date + " | " + time;
-    }
+            document.getElementById('clock').innerHTML = date + " | " + time;
+        }
 
-    setInterval(updateClock, 1000);
-    updateClock();
-    </script>
-    """,
+        setInterval(updateClock, 1000);
+        updateClock();
+        </script>
+        """,
             unsafe_allow_html=True,
         )
 
-    # show JS-based clock at top of dashboard
     live_clock_js()
 
+    # ---------------------------------------------------
+    # SIDEBAR MENU
+    # ---------------------------------------------------
     st.sidebar.title("📊 Compliance Menu")
 
     menu = st.sidebar.radio(
@@ -1963,45 +2091,62 @@ def dashboard():
         ],
     )
 
-    # logging once per session
-    if "last_log" not in st.session_state:
+    # ---------------------------------------------------
+    # PAGE CHANGE TRACKING (ENTERPRISE LOGGING)
+    # ---------------------------------------------------
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = menu
         log_activity(menu, "OPEN_PAGE")
-        st.session_state.last_log = datetime.now()
 
-    if menu == "Dashboard":
-        dashboard_analytics()
-    elif menu == "ATP Certificates":
-        atp_certificates()
-    elif menu == "Secretary Certificates":
-        secretary_certificates()
-    elif menu == "BIR 1906":
-        bir_1906_atp()
-    elif menu == "Business Permits":
-        business_permits()
-    elif menu == "BOA Stickers":
-        boa_sticker()
-    elif menu == "Fire Safety":
-        fire_safety()
-    elif menu == "Board Resolutions":
-        st.title("Board Resolutions Report")
-    elif menu == "TIN & Address":
-        branch_tin_address()
-    elif menu == "AI Compliance Copilot":
-        ai_copilot()
-    elif menu == "Tax Mapped":
-        tax_mapped()
-    elif menu == "Admin Panel":
-        admin_panel()
+    elif st.session_state.current_page != menu:
+        log_activity(menu, "SWITCH_PAGE")
+        st.session_state.current_page = menu
 
+    # ---------------------------------------------------
+    # PAGE ROUTING (CLEAN SWITCH)
+    # ---------------------------------------------------
+    pages = {
+        "Dashboard": dashboard_analytics,
+        "ATP Certificates": atp_certificates,
+        "Secretary Certificates": secretary_certificates,
+        "BIR 1906": bir_1906_atp,
+        "Business Permits": business_permits,
+        "BOA Stickers": boa_sticker,
+        "Fire Safety": fire_safety,
+        "TIN & Address": branch_tin_address,
+        "Tax Mapped": tax_mapped,
+        "AI Compliance Copilot": ai_copilot,
+        "Admin Panel": admin_panel,
+    }
+
+    if menu == "Board Resolutions":
+        st.title("📄 Board Resolutions Report")
+    else:
+        pages[menu]()
+
+    # ---------------------------------------------------
+    # SIDEBAR FOOTER
+    # ---------------------------------------------------
     st.sidebar.divider()
 
+    st.sidebar.markdown(
+        f"""
+        👤 Logged in as:  
+        **{st.session_state.get("user", "Unknown")}**
+        """
+    )
+
     if st.sidebar.button("🚪 Logout"):
+        log_activity("SYSTEM", "LOGOUT")
+
         st.session_state.logged_in = False
         st.session_state.page = "login"
+        st.session_state.clear()
+        safe_rerun()
 
 
 # ---------------------------------------------------
-# PAGE ROUTING
+# PAGE ROUTING (LOGIN SYSTEM)
 # ---------------------------------------------------
 
 if not st.session_state.logged_in:
