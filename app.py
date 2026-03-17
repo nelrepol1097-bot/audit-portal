@@ -1445,35 +1445,79 @@ def business_permits():
         st.subheader("Overview")
 
         conn, cursor = get_cursor()
-        cursor.execute("SELECT * FROM BUSINESS_PERMIT_OVERVIEW")
+        cursor.execute("""
+            SELECT 
+                COMPANY, AREA, BRANCH,
+                DEADLINE, DEADLINE_EXTENSION,
+                BRGY_PERMIT_2025,
+                BUSINESS_PERMIT_2025,
+                SEC_CERT,
+                GROSS_SALES_CERT
+            FROM BUSINESS_PERMIT_OVERVIEW
+        """)
+
+        data = cursor.fetchall()
+
+        df = pd.DataFrame(data, columns=[
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "DEADLINE",
+            "DEADLINE_EXTENSION",
+            "BRGY PERMIT 2025",
+            "BUSINESS PERMIT 2025",
+            "SEC CERT",
+            "GROSS SALES CERT"
+        ])
+
+        st.dataframe(df, use_container_width=True)
+
+    # ---------------------------------------------------
+    # GENERIC LOADER (SAFE COLUMN MATCH)
+    # ---------------------------------------------------
+    @st.cache_data(ttl=30)
+    def load_table(table_name):
+        conn, cursor = get_cursor()
+
+        query = f"""
+        SELECT 
+            COMPANY,
+            AREA,
+            BRANCH,
+            CAF,
+            PAYEE,
+            MODE_OF_PAYMENT,
+            AMOUNT,
+            ACCOUNTING,
+            TREASURY,
+            STATUS,
+            LIQUIDATION,
+            SUBMISSION_TO_ACCOUNTING
+        FROM {table_name}
+        """
+
+        cursor.execute(query)
         data = cursor.fetchall()
 
         columns = [
             "COMPANY",
             "AREA",
             "BRANCH",
-            "DEADLINE",
-            "DEADLINE_EXTENSION",
-            "BRGY_PERMIT_2025",
-            "BUSINESS_PERMIT_2025",
-            "SEC_CERT",
-            "GROSS_SALES_CERT",
+            "CAF",
+            "PAYEE",
+            "MODE_OF_PAYMENT",
+            "AMOUNT",
+            "ACCOUNTING",
+            "TREASURY",
+            "STATUS",
+            "LIQUIDATION",
+            "SUBMISSION_TO_ACCOUNTING"
         ]
 
-        df = pd.DataFrame(data, columns=columns)
-        st.dataframe(df, use_container_width=True)
+        return pd.DataFrame(data, columns=columns)
 
     # ---------------------------------------------------
-    # GENERIC LOADER (REUSABLE)
-    # ---------------------------------------------------
-    @st.cache_data(ttl=30)
-    def load_table(table_name):
-        conn, cursor = get_cursor()
-        cursor.execute(f"SELECT * FROM {table_name}")
-        return pd.DataFrame(cursor.fetchall())
-
-    # ---------------------------------------------------
-    # GENERIC UPDATE FUNCTION
+    # UPDATE FUNCTION
     # ---------------------------------------------------
     def update_table(table_name, df):
         conn, cursor = get_cursor()
@@ -1513,25 +1557,35 @@ def business_permits():
         conn.commit()
 
     # ---------------------------------------------------
-    # BUSINESS PERMIT
+    # COMMON EDITOR CONFIG (EXCEL-LIKE UI)
+    # ---------------------------------------------------
+    def render_editor(df, key):
+        return st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key=key,
+            column_config={
+                "CAF": "CAF #",
+                "PAYEE": "Payee",
+                "MODE_OF_PAYMENT": "Mode of Payment",
+                "AMOUNT": st.column_config.NumberColumn("Amount", format="%.2f"),
+                "ACCOUNTING": "Accounting Date",
+                "TREASURY": "Treasury Date",
+                "LIQUIDATION": "Date Liquidation",
+                "SUBMISSION_TO_ACCOUNTING": "Submission Date",
+            },
+        )
+
+    # ---------------------------------------------------
+    # BUSINESS PERMIT TAB
     # ---------------------------------------------------
     with tab2:
         st.subheader("Business Permit")
 
         df = load_table("BUSINESS_PERMIT")
 
-        df.columns = [
-            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
-            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
-            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
-        ]
-
-        edited_df = st.data_editor(
-            df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="business_permit_editor",
-        )
+        edited_df = render_editor(df, "business_permit_editor")
 
         if st.button("💾 Save Business Permit"):
             update_table("BUSINESS_PERMIT", edited_df)
@@ -1540,25 +1594,14 @@ def business_permits():
             safe_rerun()
 
     # ---------------------------------------------------
-    # BRGY PERMIT
+    # BRGY PERMIT TAB
     # ---------------------------------------------------
     with tab3:
         st.subheader("Barangay Permit")
 
         df = load_table("BRGY_PERMIT")
 
-        df.columns = [
-            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
-            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
-            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
-        ]
-
-        edited_df = st.data_editor(
-            df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="brgy_permit_editor",
-        )
+        edited_df = render_editor(df, "brgy_permit_editor")
 
         if st.button("💾 Save Brgy Permit"):
             update_table("BRGY_PERMIT", edited_df)
@@ -1567,25 +1610,14 @@ def business_permits():
             safe_rerun()
 
     # ---------------------------------------------------
-    # OTHER FEES
+    # OTHER FEES TAB
     # ---------------------------------------------------
     with tab4:
         st.subheader("Other Fees for Renew")
 
         df = load_table("OTHER_FEES_RENEW")
 
-        df.columns = [
-            "COMPANY","AREA","BRANCH","CAF","PAYEE","MODE_OF_PAYMENT",
-            "AMOUNT","ACCOUNTING","TREASURY","STATUS",
-            "LIQUIDATION","SUBMISSION_TO_ACCOUNTING"
-        ]
-
-        edited_df = st.data_editor(
-            df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="other_fees_editor",
-        )
+        edited_df = render_editor(df, "other_fees_editor")
 
         if st.button("💾 Save Other Fees"):
             update_table("OTHER_FEES_RENEW", edited_df)
