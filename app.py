@@ -127,10 +127,22 @@ def live_clock():
     )
 
 # ---------------------------------------------------
+# RERUN HELPER (handles old/new versions)
+# ---------------------------------------------------
+
+def safe_rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        # Older Streamlit versions
+        st.experimental_rerun()
+
+# ---------------------------------------------------
 # HELPER: generic delete/undo pattern for ID-based tables
 # ---------------------------------------------------
 
-def handle_save_with_id(df_name_prefix, table_name, df, id_col, insert_sql, update_sql, insert_cols, update_cols):
+def handle_save_with_id(df_name_prefix, table_name, df, id_col,
+                        insert_sql, update_sql, insert_cols, update_cols):
     """
     df_name_prefix: short key prefix for session_state (e.g., 'atp', 'tax_mapped')
     table_name: DB table name for DELETE
@@ -146,11 +158,10 @@ def handle_save_with_id(df_name_prefix, table_name, df, id_col, insert_sql, upda
 
     orig = st.session_state.get(orig_key, df.copy())
 
-    # convert IDs to int where possible
     orig_ids = set(orig[id_col].dropna().astype(int))
     edited_ids = set(df[id_col].dropna().astype(int))
 
-    # detect deletions
+    # deletions
     deleted_ids = orig_ids - edited_ids
     if deleted_ids:
         st.session_state[deleted_key] = orig[orig[id_col].isin(deleted_ids)].copy()
@@ -413,7 +424,7 @@ def atp_certificates():
             load_atp.clear()
             st.session_state.atp_orig = load_atp()
             st.success("Data saved successfully")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="atp_undo"):
@@ -443,7 +454,7 @@ def atp_certificates():
                 load_atp.clear()
                 st.session_state.atp_orig = load_atp()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -451,7 +462,7 @@ def atp_certificates():
         if st.button("🔄 Refresh", key="atp_refresh"):
             load_atp.clear()
             st.session_state.atp_orig = load_atp()
-            st.experimental_rerun()
+            safe_rerun()
 
 # ---------------------------------------------------
 # BIR 1906 ATP
@@ -528,7 +539,7 @@ def bir_1906_atp():
             load_bir.clear()
             st.session_state.bir1906_orig = load_bir()
             st.success("Data saved successfully")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="bir1906_undo"):
@@ -553,7 +564,7 @@ def bir_1906_atp():
                 load_bir.clear()
                 st.session_state.bir1906_orig = load_bir()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -561,7 +572,7 @@ def bir_1906_atp():
         if st.button("🔄 Refresh", key="bir1906_refresh"):
             load_bir.clear()
             st.session_state.bir1906_orig = load_bir()
-            st.experimental_rerun()
+            safe_rerun()
 
 # ---------------------------------------------------
 # AI COMPLIANCE COPILOT
@@ -718,7 +729,7 @@ def boa_sticker():
             load_boa.clear()
             st.session_state.boa_orig = load_boa()
             st.success("Data saved successfully")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="boa_undo"):
@@ -745,7 +756,7 @@ def boa_sticker():
                 load_boa.clear()
                 st.session_state.boa_orig = load_boa()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -753,7 +764,7 @@ def boa_sticker():
         if st.button("🔄 Refresh", key="boa_refresh"):
             load_boa.clear()
             st.session_state.boa_orig = load_boa()
-            st.experimental_rerun()
+            safe_rerun()
 
 # ---------------------------------------------------
 # FIRE SAFETY
@@ -834,7 +845,7 @@ def fire_safety():
             load_fire.clear()
             st.session_state.fire_orig = load_fire()
             st.success("Data saved successfully")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="fire_undo"):
@@ -860,7 +871,7 @@ def fire_safety():
                 load_fire.clear()
                 st.session_state.fire_orig = load_fire()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -868,7 +879,7 @@ def fire_safety():
         if st.button("🔄 Refresh", key="fire_refresh"):
             load_fire.clear()
             st.session_state.fire_orig = load_fire()
-            st.experimental_rerun()
+            safe_rerun()
 
 # ---------------------------------------------------
 # BRANCH TIN & ADDRESS
@@ -990,7 +1001,7 @@ def branch_tin_address():
                 load_branch_tin.clear()
                 st.session_state[orig_key] = load_branch_tin(st.session_state.company)
                 st.success("Data saved successfully")
-                st.experimental_rerun()
+                safe_rerun()
 
         with col_undo:
             if st.button("↩ Undo last delete", key=f"{key_prefix}_undo"):
@@ -1020,7 +1031,7 @@ def branch_tin_address():
                     load_branch_tin.clear()
                     st.session_state[orig_key] = load_branch_tin(st.session_state.company)
                     st.success("Delete undone")
-                    st.experimental_rerun()
+                    safe_rerun()
                 else:
                     st.info("Nothing to undo")
 
@@ -1028,7 +1039,7 @@ def branch_tin_address():
             if st.button("🔄 Refresh", key=f"{key_prefix}_refresh"):
                 load_branch_tin.clear()
                 st.session_state[orig_key] = load_branch_tin(st.session_state.company)
-                st.experimental_rerun()
+                safe_rerun()
 
 # ---------------------------------------------------
 # BUSINESS PERMITS (UPDATE-ONLY, NO DELETE)
@@ -1328,7 +1339,7 @@ def tax_mapped():
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
             st.success("Table Updated")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="tax_mapped_undo"):
@@ -1353,7 +1364,7 @@ def tax_mapped():
                 load_tax_mapped.clear()
                 st.session_state.tax_mapped_orig = load_tax_mapped()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -1361,7 +1372,7 @@ def tax_mapped():
         if st.button("🔄 Refresh", key="tax_mapped_refresh"):
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
-            st.experimental_rerun()
+            safe_rerun()
 
     # IMAGE UPLOAD
     st.subheader("Upload Tax Mapped Sticker (Optional)")
@@ -1478,7 +1489,7 @@ def secretary_certificates():
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
             st.success("Data saved successfully")
-            st.experimental_rerun()
+            safe_rerun()
 
     with col_undo:
         if st.button("↩ Undo last delete", key="sec_undo"):
@@ -1507,7 +1518,7 @@ def secretary_certificates():
                 load_sec.clear()
                 st.session_state.sec_orig = load_sec()
                 st.success("Delete undone")
-                st.experimental_rerun()
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
@@ -1515,7 +1526,7 @@ def secretary_certificates():
         if st.button("🔄 Refresh", key="sec_refresh"):
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
-            st.experimental_rerun()
+            safe_rerun()
 
 # ---------------------------------------------------
 # DASHBOARD
