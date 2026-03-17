@@ -1408,7 +1408,7 @@ def secretary_certificates():
     @st.cache_data(ttl=30, show_spinner=False)
     def load_sec():
         # USE YOUR REAL TABLE NAME HERE
-        cursor.execute(SELECT * FROM "SECRETARY_CERTIFICATES")
+        cursor.execute("SELECT * FROM SECRETARY_CERTIFICATES")
         data = cursor.fetchall()
         columns = [
             "ID",
