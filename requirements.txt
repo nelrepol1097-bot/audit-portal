@@ -5,3 +5,4 @@ plotly
 requests
 streamlit-lottie
 openai
+streamlit-autorefresh
