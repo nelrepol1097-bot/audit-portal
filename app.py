@@ -1401,28 +1401,30 @@ def tax_mapped():
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
+def secretary_certificate():
+    st.title("📄 Secretary Certificates Compliance")
 
-def secretary_certificates():
-
-    st.title("📄 Secretary Certificate Compliance")
-
-    # -----------------------------
-    # LOAD DATA (SAFE + CACHED)
-    # -----------------------------
     @st.cache_data(ttl=30, show_spinner=False)
-    def load_sec():
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT * FROM SECRETARY_CERTIFICATES")
-
+    def load_sec_secretary_certificates():
+        # Select exactly the columns you want to work with
+        cursor.execute("""
+            SELECT
+                ID,
+                AREA,
+                MONTH_YEAR,
+                BRANCH,
+                REMARKS,
+                DATE_FORWARDED,
+                STATUS,
+                DATE_RECEIVED,
+                FINAL_STATUS
+            FROM SECRETARY_CERTIFICATES
+        """)
         data = cursor.fetchall()
-
         columns = [
             "ID",
             "AREA",
             "MONTH_YEAR",
-            "COMPANY",
             "BRANCH",
             "REMARKS",
             "DATE_FORWARDED",
@@ -1430,14 +1432,11 @@ def secretary_certificates():
             "DATE_RECEIVED",
             "FINAL_STATUS"
         ]
-
         return pd.DataFrame(data, columns=columns)
 
     df = load_sec()
 
-    # -----------------------------
-    # STORE ORIGINAL DATA
-    # -----------------------------
+    # Store original for delete detection
     if "sec_orig" not in st.session_state:
         st.session_state.sec_orig = df.copy()
 
@@ -1448,143 +1447,104 @@ def secretary_certificates():
         key="sec_editor"
     )
 
-    col1, col2, col3 = st.columns(3)
+    col_save, col_undo, col_refresh = st.columns(3)
 
     # -----------------------------
-    # SAVE BUTTON
+    # SAVE (insert / update / delete)
     # -----------------------------
-    with col1:
-        if st.button("💾 Save Changes"):
-
-            conn = get_connection()
-            cursor = conn.cursor()
-
-            orig = st.session_state.sec_orig
-
-            # DELETE
-            orig_ids = set(orig["ID"].dropna())
-            new_ids = set(edited_df["ID"].dropna())
-
-            deleted_ids = orig_ids - new_ids
-
-            if deleted_ids:
-                st.session_state.sec_deleted = orig[orig["ID"].isin(deleted_ids)]
-
-            for del_id in deleted_ids:
-                cursor.execute(
-                    "DELETE FROM SECRETARY_CERTIFICATES WHERE ID=%s",
-                    (int(del_id),)
-                )
-
-            # INSERT + UPDATE
-            for _, row in edited_df.iterrows():
-
-                if pd.isna(row["ID"]):
-                    cursor.execute("""
-                        INSERT INTO SECRETARY_CERTIFICATES
-                        (AREA,MONTH_YEAR,COMPANY,BRANCH,REMARKS,
-                         DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (
-                        row["AREA"],
-                        row["MONTH_YEAR"],
-                        row["COMPANY"],
-                        row["BRANCH"],
-                        row["REMARKS"],
-                        row["DATE_FORWARDED"],
-                        row["STATUS"],
-                        row["DATE_RECEIVED"],
-                        row["FINAL_STATUS"]
-                    ))
-
-                else:
-                    cursor.execute("""
-                        UPDATE SECRETARY_CERTIFICATES
-                        SET
-                            AREA=%s,
-                            MONTH_YEAR=%s,
-                            COMPANY=%s,
-                            BRANCH=%s,
-                            REMARKS=%s,
-                            DATE_FORWARDED=%s,
-                            STATUS=%s,
-                            DATE_RECEIVED=%s,
-                            FINAL_STATUS=%s
-                        WHERE ID=%s
-                    """, (
-                        row["AREA"],
-                        row["MONTH_YEAR"],
-                        row["COMPANY"],
-                        row["BRANCH"],
-                        row["REMARKS"],
-                        row["DATE_FORWARDED"],
-                        row["STATUS"],
-                        row["DATE_RECEIVED"],
-                        row["FINAL_STATUS"],
-                        int(row["ID"])
-                    ))
-
-            conn.commit()
-
-            # REFRESH CACHE
+    with col_save:
+        if st.button("💾 Save Changes", key="sec_save"):
+            handle_save_with_id(
+                df_name_prefix="sec",              # session_state keys: sec_orig, sec_deleted
+                table_name="SECRETARY_CERTIFICATES",
+                df=edited_df,
+                id_col="ID",
+                insert_sql="""
+                    INSERT INTO SECRETARY_CERTIFICATES
+                    (AREA,MONTH_YEAR,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                update_sql="""
+                    UPDATE SECRETARY_CERTIFICATES
+                    SET
+                        AREA=%s,
+                        MONTH_YEAR=%s,
+                        BRANCH=%s,
+                        REMARKS=%s,
+                        DATE_FORWARDED=%s,
+                        STATUS=%s,
+                        DATE_RECEIVED=%s,
+                        FINAL_STATUS=%s
+                    WHERE ID=%s
+                """,
+                insert_cols=[
+                    "AREA",
+                    "MONTH_YEAR",
+                    "BRANCH",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "STATUS",
+                    "DATE_RECEIVED",
+                    "FINAL_STATUS"
+                ],
+                update_cols=[
+                    "AREA",
+                    "MONTH_YEAR",
+                    "BRANCH",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "STATUS",
+                    "DATE_RECEIVED",
+                    "FINAL_STATUS"
+                ]
+            )
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
-
-            st.success("Saved successfully ✅")
-
-            st.rerun()
+            st.success("Data saved successfully")
+            safe_rerun()
 
     # -----------------------------
     # UNDO DELETE
     # -----------------------------
-    with col2:
-        if st.button("↩ Undo Delete"):
-
-            if "sec_deleted" in st.session_state:
-
-                conn = get_connection()
-                cursor = conn.cursor()
-
-                deleted_df = st.session_state.sec_deleted
-
-                for _, row in deleted_df.iterrows():
-                    cursor.execute("""
-                        INSERT INTO SECRETARY_CERTIFICATES
-                        (ID,AREA,MONTH_YEAR,COMPANY,BRANCH,REMARKS,
-                         DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (
-                        int(row["ID"]),
-                        row["AREA"],
-                        row["MONTH_YEAR"],
-                        row["COMPANY"],
-                        row["BRANCH"],
-                        row["REMARKS"],
-                        row["DATE_FORWARDED"],
-                        row["STATUS"],
-                        row["DATE_RECEIVED"],
-                        row["FINAL_STATUS"]
-                    ))
-
-                conn.commit()
-
+    with col_undo:
+        if st.button("↩ Undo last delete", key="sec_undo"):
+            ok = handle_undo_with_id(
+                df_name_prefix="sec",
+                table_name="SECRETARY_CERTIFICATES",
+                insert_sql_with_id="""
+                    INSERT INTO SECRETARY_CERTIFICATES
+                    (ID,AREA,MONTH_YEAR,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                cols_with_id=[
+                    "ID",
+                    "AREA",
+                    "MONTH_YEAR",
+                    "BRANCH",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "STATUS",
+                    "DATE_RECEIVED",
+                    "FINAL_STATUS"
+                ]
+            )
+            if ok:
                 load_sec.clear()
                 st.session_state.sec_orig = load_sec()
-
-                st.success("Undo successful 🔄")
-
-                st.rerun()
+                st.success("Delete undone")
+                safe_rerun()
             else:
                 st.info("Nothing to undo")
 
     # -----------------------------
     # REFRESH
     # -----------------------------
-    with col3:
-        if st.button("🔄 Refresh"):
+    with col_refresh:
+        if st.button("🔄 Refresh", key="sec_refresh"):
             load_sec.clear()
             st.session_state.sec_orig = load_sec()
-            st.rerun()
+            safe_rerun()
+
 # ---------------------------------------------------
 # DASHBOARD
 # ---------------------------------------------------
