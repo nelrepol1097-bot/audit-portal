@@ -1407,7 +1407,8 @@ def secretary_certificates():
 
     @st.cache_data(ttl=30, show_spinner=False)
     def load_sec():
-        cursor.execute("SELECT * FROM SECRETARY_CERTIFICATES")
+        # USE YOUR REAL TABLE NAME HERE
+        cursor.execute('SELECT * FROM "Secretary_Certificate"')
         data = cursor.fetchall()
         columns = [
             "ID",
@@ -1441,16 +1442,16 @@ def secretary_certificates():
         if st.button("💾 Save Changes", key="sec_save"):
             handle_save_with_id(
                 df_name_prefix="sec",
-                table_name="SECRETARY_CERTIFICATES",
+                table_name='"Secretary_Certificate"',  # <— same name
                 df=edited_df,
                 id_col="ID",
                 insert_sql="""
-                    INSERT INTO SECRETARY_CERTIFICATES
+                    INSERT INTO "Secretary_Certificate"
                     (AREA,MONTH_YEAR,COMPANY,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
-                    UPDATE SECRETARY_CERTIFICATES
+                    UPDATE "Secretary_Certificate"
                     SET
                         AREA=%s,
                         MONTH_YEAR=%s,
@@ -1495,9 +1496,9 @@ def secretary_certificates():
         if st.button("↩ Undo last delete", key="sec_undo"):
             ok = handle_undo_with_id(
                 df_name_prefix="sec",
-                table_name="SECRETARY_CERTIFICATES",
+                table_name='"Secretary_Certificate"',  # <— same name
                 insert_sql_with_id="""
-                    INSERT INTO SECRETARY_CERTIFICATES
+                    INSERT INTO "Secretary_Certificate"
                     (ID,AREA,MONTH_YEAR,COMPANY,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
