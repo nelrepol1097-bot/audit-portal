@@ -693,7 +693,6 @@ def bir_1906_atp():
     # ---------------------------------------------------
     # LOAD DATA (SAFE + CACHED)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30, show_spinner=False)
     def load_bir():
         conn, cursor = get_cursor()
 
@@ -951,7 +950,6 @@ def boa_sticker():
     # ---------------------------------------------------
     # LOAD DATA (SAFE + CACHED)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30, show_spinner=False)
     def load_boa():
         conn, cursor = get_cursor()
 
@@ -1101,7 +1099,6 @@ def fire_safety():
     # ---------------------------------------------------
     # LOAD DATA (SAFE + CACHED)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30, show_spinner=False)
     def load_fire():
         conn, cursor = get_cursor()
 
@@ -1265,7 +1262,6 @@ def branch_tin_address():
         selected_company = st.session_state.company
         st.subheader(f"{selected_company} Branch List")
 
-        @st.cache_data(ttl=30, show_spinner=False)
         def load_branch_tin(company):
             conn, cursor = get_cursor()
 
@@ -1441,7 +1437,6 @@ def business_permits():
     # ---------------------------------------------------
     # LOAD TRACKER DATA (BY TYPE)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30)
     def load_data(data_type):
         conn, cursor = get_cursor()
 
@@ -1484,7 +1479,6 @@ def business_permits():
     # ---------------------------------------------------
     # LOAD OVERVIEW TABLE
     # ---------------------------------------------------
-    @st.cache_data(ttl=30)
     def load_overview():
         conn, cursor = get_cursor()
 
@@ -1712,7 +1706,6 @@ def tax_mapped():
     # ---------------------------------------------------
     # LOAD DATA (SAFE + CACHED)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30, show_spinner=False)
     def load_tax_mapped():
         conn, cursor = get_cursor()
 
@@ -1875,7 +1868,6 @@ def secretary_certificates():
     # ---------------------------------------------------
     # LOAD DATA (SAFE + CACHED)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30, show_spinner=False)
     def load_sec():
         conn, cursor = get_cursor()
 
@@ -2050,7 +2042,6 @@ def dashboard_analytics():
     # ---------------------------------------------------
     # CACHED DATA LOADERS (FAST ⚡)
     # ---------------------------------------------------
-    @st.cache_data(ttl=30)
     def load_business_status():
         conn, cursor = get_cursor()
         cursor.execute("""
@@ -2060,7 +2051,6 @@ def dashboard_analytics():
         """)
         return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
 
-    @st.cache_data(ttl=30)
     def load_area_distribution():
         conn, cursor = get_cursor()
         cursor.execute("""
@@ -2070,7 +2060,6 @@ def dashboard_analytics():
         """)
         return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
 
-    @st.cache_data(ttl=30)
     def load_pending():
         conn, cursor = get_cursor()
         cursor.execute("""
