@@ -1087,33 +1087,6 @@ def branch_tin_address():
     st.title("🏢 Branch TIN & Address")
 
     # =========================
-    # SCI-FI UI EFFECT 🔥
-    # =========================
-    st.markdown("""
-    <style>
-    .glow-box {
-        padding: 12px;
-        border-radius: 12px;
-        background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-        box-shadow: 0 0 15px rgba(0,255,255,0.3);
-        animation: pulseGlow 2s infinite alternate;
-    }
-
-    @keyframes pulseGlow {
-        from { box-shadow: 0 0 10px rgba(0,255,255,0.2); }
-        to { box-shadow: 0 0 25px rgba(0,255,255,0.6); }
-    }
-
-    .mode-title {
-        font-size:18px;
-        font-weight:bold;
-        color:#00ffff;
-        margin-top:10px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # =========================
     # COMPANY SELECTOR
     # =========================
     col1, col2, col3 = st.columns(3)
@@ -1131,42 +1104,37 @@ def branch_tin_address():
             st.session_state.company = "FASTCASH"
 
     # =========================
-    # MODE SELECTOR
+    # EXTRA VIEW BUTTONS
     # =========================
     colA, colB = st.columns(2)
 
     with colA:
         if st.button("🆕 NEW BRANCH ADDRESS"):
-            st.session_state.mode = "NEW"
+            st.session_state.view_mode = "NEW"
 
     with colB:
         if st.button("🔁 CHANGED ADDRESS"):
-            st.session_state.mode = "CHANGED"
+            st.session_state.view_mode = "CHANGED"
 
-    if "mode" not in st.session_state:
-        st.session_state.mode = "ALL"
+    if "view_mode" not in st.session_state:
+        st.session_state.view_mode = "MAIN"
 
     # =========================
     # MAIN
     # =========================
     if "company" in st.session_state:
         company = st.session_state.company
-        mode = st.session_state.mode
-
-        st.markdown(f"<div class='mode-title'>⚡ {company} - {mode} MODE</div>", unsafe_allow_html=True)
 
         # =========================
-        # LOAD DATA
+        # LOAD DATA (NO CACHE)
         # =========================
         def load_data(company):
             conn, cursor = get_cursor()
-
             cursor.execute("""
                 SELECT *
                 FROM BRANCH_TIN_ADDRESS
                 WHERE COMPANY = %s
             """, (company,))
-
             data = cursor.fetchall()
 
             cols = [
@@ -1180,139 +1148,117 @@ def branch_tin_address():
         df = load_data(company)
 
         # =========================
-        # FILTER
+        # 🟢 MAIN TABLE (UNCHANGED)
         # =========================
-        if mode == "NEW":
-            df_display = df[df["STATUS"] == "NEW"].copy()
-        elif mode == "CHANGED":
-            df_display = df[df["STATUS"] == "CHANGED"].copy()
-        else:
-            df_display = df.copy()
+        st.subheader(f"{company} Full Branch Table")
+
+        edited_df = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key=f"{company}_main_editor"
+        )
 
         # =========================
-        # DYNAMIC VIEW (NO COLUMN LOSS)
+        # SAVE (MAIN TABLE)
         # =========================
-        if mode == "NEW":
-            st.markdown("### 🆕 NEW BRANCH ADDRESS")
+        if st.button("💾 Save Changes (Main Table)"):
+            edited_df = edited_df.where(pd.notnull(edited_df), None)
 
-            df_display["ADDRESS"] = df_display["UPDATED_ADDRESS"]
+            handle_save_with_id(
+                df_name_prefix=f"{company}_main",
+                table_name="BRANCH_TIN_ADDRESS",
+                df=edited_df,
+                id_col="ID",
+                insert_sql="""
+                    INSERT INTO BRANCH_TIN_ADDRESS
+                    (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                update_sql="""
+                    UPDATE BRANCH_TIN_ADDRESS
+                    SET
+                        COMPANY=%s,
+                        TIN=%s,
+                        BRANCH_CODE=%s,
+                        RDO=%s,
+                        AREA=%s,
+                        BRANCH_NAME=%s,
+                        UPDATED_ADDRESS=%s,
+                        STATUS=%s,
+                        DATE_OPEN=%s,
+                        DATE_OF_CLOSURE=%s
+                    WHERE ID=%s
+                """,
+                insert_cols=[
+                    "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
+                    "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
+                    "DATE_OPEN","DATE_OF_CLOSURE"
+                ],
+                update_cols=[
+                    "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
+                    "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
+                    "DATE_OPEN","DATE_OF_CLOSURE"
+                ],
+            )
 
-            display_cols = [
+            st.success("Saved Main Table ✅")
+            safe_rerun()
+
+        st.divider()
+
+        # =========================
+        # 🆕 NEW BRANCH VIEW (EXCEL STYLE)
+        # =========================
+        if st.session_state.view_mode == "NEW":
+
+            st.subheader("🆕 NEW BRANCH ADDRESS")
+
+            df_new = df[df["STATUS"] == "NEW"].copy()
+
+            df_new["ADDRESS"] = df_new["UPDATED_ADDRESS"]
+
+            view_new = df_new[[
                 "COMPANY",
                 "BRANCH_NAME",
                 "ADDRESS",
                 "DATE_OPEN"
-            ]
+            ]]
 
-        elif mode == "CHANGED":
-            st.markdown("### 🔁 CHANGED ADDRESS")
+            edited_new = st.data_editor(
+                view_new,
+                num_rows="dynamic",
+                use_container_width=True,
+                key=f"{company}_new_editor"
+            )
 
-            if "OLD_ADDRESS" not in df_display.columns:
-                df_display["OLD_ADDRESS"] = ""
+        # =========================
+        # 🔁 CHANGED ADDRESS VIEW
+        # =========================
+        if st.session_state.view_mode == "CHANGED":
 
-            df_display["ADDRESS (NEW ADDRESS)"] = df_display["UPDATED_ADDRESS"]
+            st.subheader("🔁 CHANGED ADDRESS")
 
-            display_cols = [
+            df_changed = df[df["STATUS"] == "CHANGED"].copy()
+
+            if "OLD_ADDRESS" not in df_changed.columns:
+                df_changed["OLD_ADDRESS"] = ""
+
+            df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
+
+            view_changed = df_changed[[
                 "COMPANY",
                 "BRANCH_NAME",
                 "ADDRESS (NEW ADDRESS)",
                 "OLD_ADDRESS"
-            ]
+            ]]
 
-        else:
-            display_cols = df_display.columns.tolist()
-
-        # =========================
-        # DATA EDITOR (SCI-FI BOX)
-        # =========================
-        st.markdown("<div class='glow-box'>", unsafe_allow_html=True)
-
-        edited_df = st.data_editor(
-            df_display[display_cols],
-            num_rows="dynamic",
-            use_container_width=True,
-            key=f"{company}_{mode}_editor"
-        )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # =========================
-        # BUTTONS
-        # =========================
-        col_save, col_undo, col_refresh = st.columns(3)
-
-        with col_save:
-            if st.button("💾 Save Changes"):
-
-                edited_df = edited_df.where(pd.notnull(edited_df), None)
-
-                # =========================
-                # MAP BACK (IMPORTANT)
-                # =========================
-                if mode == "NEW":
-                    edited_df = edited_df.rename(columns={
-                        "BRANCH_NAME": "BRANCH_NAME",
-                        "ADDRESS": "UPDATED_ADDRESS",
-                        "DATE_OPEN": "DATE_OPEN"
-                    })
-                    edited_df["STATUS"] = "NEW"
-
-                elif mode == "CHANGED":
-                    edited_df = edited_df.rename(columns={
-                        "ADDRESS (NEW ADDRESS)": "UPDATED_ADDRESS",
-                        "OLD_ADDRESS": "OLD_ADDRESS"
-                    })
-                    edited_df["STATUS"] = "CHANGED"
-
-                edited_df["COMPANY"] = company
-
-                handle_save_with_id(
-                    df_name_prefix=f"{company}_{mode}",
-                    table_name="BRANCH_TIN_ADDRESS",
-                    df=edited_df,
-                    id_col="ID",
-                    insert_sql="""
-                        INSERT INTO BRANCH_TIN_ADDRESS
-                        (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """,
-                    update_sql="""
-                        UPDATE BRANCH_TIN_ADDRESS
-                        SET
-                            COMPANY=%s,
-                            TIN=%s,
-                            BRANCH_CODE=%s,
-                            RDO=%s,
-                            AREA=%s,
-                            BRANCH_NAME=%s,
-                            UPDATED_ADDRESS=%s,
-                            STATUS=%s,
-                            DATE_OPEN=%s,
-                            DATE_OF_CLOSURE=%s
-                        WHERE ID=%s
-                    """,
-                    insert_cols=[
-                        "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
-                        "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
-                        "DATE_OPEN","DATE_OF_CLOSURE"
-                    ],
-                    update_cols=[
-                        "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
-                        "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
-                        "DATE_OPEN","DATE_OF_CLOSURE"
-                    ],
-                )
-
-                st.success("✅ Saved successfully")
-                safe_rerun()
-
-        with col_undo:
-            if st.button("↩ Undo last delete"):
-                st.info("Undo supported if configured")
-
-        with col_refresh:
-            if st.button("🔄 Refresh"):
-                safe_rerun()
+            edited_changed = st.data_editor(
+                view_changed,
+                num_rows="dynamic",
+                use_container_width=True,
+                key=f"{company}_changed_editor"
+            )
 # ---------------------------------------------------
 # BUSINESS PERMITS (UPDATE-ONLY, NO DELETE)
 # ---------------------------------------------------
