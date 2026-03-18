@@ -158,8 +158,6 @@ def safe_rerun():
 # ---------------------------------------------------
 # GENERIC SAVE / DELETE / UNDO HELPERS
 # ---------------------------------------------------
-
-
 def handle_save_with_id(
     df_name_prefix: str,
     table_name: str,
@@ -170,96 +168,116 @@ def handle_save_with_id(
     insert_cols: list,
     update_cols: list,
 ):
-    """
-    Generic handler for data_editor-based tables with integer ID primary keys.
-
-    - Detects inserts (no ID)
-    - Detects updates (existing IDs with changed values)
-    - Detects deletes (IDs removed vs original)
-    - Logs all changes to AUDIT_LOG via log_audit
-    - Stores deleted rows in session_state for undo
-    """
     conn, cursor = get_cursor()
 
-    # Ensure numeric IDs for comparison
+    # ---------------------------------------------------
+    # PREP DATA
+    # ---------------------------------------------------
     df_work = df.copy()
     df_work[id_col] = pd.to_numeric(df_work[id_col], errors="coerce")
 
-    # Original dataframe kept in session_state
+    # Original dataframe
     orig_key = f"{df_name_prefix}_orig"
     orig = st.session_state.get(orig_key, pd.DataFrame(columns=df.columns)).copy()
+
     if not orig.empty:
         orig[id_col] = pd.to_numeric(orig[id_col], errors="coerce")
 
     orig_ids = set(orig[id_col].dropna().astype(int)) if not orig.empty else set()
-    current_ids = set(df_work[id_col].dropna().astype(int))
 
-    # New rows (no ID yet)
-    # NEW LOGIC 🔥
-new_rows = df_work[
-    df_work[id_col].isna() | 
-    (~df_work[id_col].isin(orig_ids))
-]
+    # ---------------------------------------------------
+    # 🔥 FIXED LOGIC (INSERT / UPDATE)
+    # ---------------------------------------------------
 
-    # Existing rows (for update / delete detection)
-    existing_rows = df_work[df_work[id_col].notna()]
+    # NEW ROWS → ID is null OR not existing in DB
+    new_rows = df_work[
+        df_work[id_col].isna() |
+        (~df_work[id_col].isin(orig_ids))
+    ]
+
+    # EXISTING ROWS → only those already in DB
+    existing_rows = df_work[
+        df_work[id_col].notna() &
+        (df_work[id_col].isin(orig_ids))
+    ]
+
     existing_ids = set(existing_rows[id_col].astype(int))
 
-    # Deleted rows: in original but not in current
+    # ---------------------------------------------------
+    # DELETE DETECTION
+    # ---------------------------------------------------
     deleted_ids = orig_ids - existing_ids
 
-    # map original rows by ID for comparison
     if not orig.empty:
         orig_indexed = orig.set_index(id_col)
     else:
         orig_indexed = pd.DataFrame().set_index(pd.Index([]))
 
-    # INSERT new rows
+    # ---------------------------------------------------
+    # INSERT
+    # ---------------------------------------------------
     for _, row in new_rows.iterrows():
-        vals = [row[c] for c in insert_cols]
-        cursor.execute(insert_sql, vals)
-        # audit with no record_id (ID is auto)
-        log_audit(table_name, None, "ALL", None, str(vals), "INSERT")
+        try:
+            vals = [row[c] for c in insert_cols]
+            cursor.execute(insert_sql, vals)
 
-    # UPDATE existing rows (with audit)
+            log_audit(table_name, None, "ALL", None, str(vals), "INSERT")
+
+        except Exception as e:
+            st.error(f"INSERT ERROR: {e}")
+
+    # ---------------------------------------------------
+    # UPDATE
+    # ---------------------------------------------------
     for _, row in existing_rows.iterrows():
-    rid = int(row[id_col])
+        try:
+            rid = int(row[id_col])
 
-    # 🔥 ONLY UPDATE IF EXISTS
-    if rid not in orig_ids:
-        continue
-        if rid in orig_indexed.index:
-            old_row = orig_indexed.loc[rid]
-            # column-level audit
-            for col in update_cols:
-                old_val = old_row[col]
-                new_val = row[col]
-                if str(old_val) != str(new_val):
-                    log_audit(
-                        table_name,
-                        rid,
-                        col,
-                        old_val,
-                        new_val,
-                        "UPDATE",
-                    )
+            if rid in orig_indexed.index:
+                old_row = orig_indexed.loc[rid]
 
-        vals = [row[c] for c in update_cols] + [rid]
-        cursor.execute(update_sql, vals)
+                for col in update_cols:
+                    old_val = old_row[col]
+                    new_val = row[col]
 
-    # DELETE removed rows (with audit + undo buffer)
+                    if str(old_val) != str(new_val):
+                        log_audit(
+                            table_name,
+                            rid,
+                            col,
+                            old_val,
+                            new_val,
+                            "UPDATE",
+                        )
+
+            vals = [row[c] for c in update_cols] + [rid]
+            cursor.execute(update_sql, vals)
+
+        except Exception as e:
+            st.error(f"UPDATE ERROR (ID {row[id_col]}): {e}")
+
+    # ---------------------------------------------------
+    # DELETE
+    # ---------------------------------------------------
     deleted_key = f"{df_name_prefix}_deleted"
     deleted_buffer = st.session_state.get(deleted_key, pd.DataFrame())
 
     if not orig.empty and deleted_ids:
         deleted_rows = orig[orig[id_col].isin(list(deleted_ids))]
+
         for _, drow in deleted_rows.iterrows():
-            del_id = int(drow[id_col])
-            log_audit(table_name, del_id, "ALL", "ROW", "DELETED", "DELETE")
-            cursor.execute(
-                f"DELETE FROM {table_name} WHERE {id_col}=%s",
-                (del_id,),
-            )
+            try:
+                del_id = int(drow[id_col])
+
+                log_audit(table_name, del_id, "ALL", "ROW", "DELETED", "DELETE")
+
+                cursor.execute(
+                    f"DELETE FROM {table_name} WHERE {id_col}=%s",
+                    (del_id,),
+                )
+
+            except Exception as e:
+                st.error(f"DELETE ERROR (ID {drow[id_col]}): {e}")
 
         # store for undo
         if deleted_buffer is None or deleted_buffer.empty:
@@ -269,33 +287,10 @@ new_rows = df_work[
 
         st.session_state[deleted_key] = deleted_buffer
 
+    # ---------------------------------------------------
+    # COMMIT
+    # ---------------------------------------------------
     conn.commit()
-
-
-def handle_undo_with_id(df_name_prefix, table_name, insert_sql_with_id, cols_with_id):
-    """
-    Undo last delete for tables using handle_save_with_id.
-    Restores from session_state[f"{prefix}_deleted"].
-    """
-    conn, cursor = get_cursor()
-
-    deleted_key = f"{df_name_prefix}_deleted"
-    if deleted_key not in st.session_state:
-        return False
-
-    deleted_df = st.session_state[deleted_key]
-    if deleted_df is None or deleted_df.empty:
-        return False
-
-    for _, row in deleted_df.iterrows():
-        vals = [row[c] for c in cols_with_id]
-        cursor.execute(insert_sql_with_id, vals)
-
-    conn.commit()
-    st.session_state[deleted_key] = pd.DataFrame()
-    return True
-
-
 # ---------------------------------------------------
 # ACTIVITY / AUDIT LOG
 # ---------------------------------------------------
