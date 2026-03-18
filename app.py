@@ -1966,27 +1966,7 @@ def board_resolutions():
         if st.button("🔄 Refresh", key="board_refresh"):
             st.session_state.board_orig = load_board()
             safe_rerun()
-# ========================= EMAIL ALERT FUNCTION =========================
-def send_alert(message):
-    try:
-        sender = "your_email@gmail.com"
-        password = "your_app_password"
-        receiver = "receiver@email.com"
 
-        msg = MIMEText(message)
-        msg["Subject"] = "⚠️ Compliance Alert"
-        msg["From"] = sender
-        msg["To"] = receiver
-
-        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        server.login(sender, password)
-        server.sendmail(sender, receiver, msg.as_string())
-        server.quit()
-    except:
-        pass
-
-
-# ========================= MAIN DASHBOARD =========================
 def dashboard_analytics():
 
     st.markdown("""
@@ -2034,6 +2014,10 @@ def dashboard_analytics():
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     df = load_data()
+
+    # ✅ FIX COLUMN CASE ISSUE
+    df.columns = df.columns.str.upper()
+
     today = datetime.today().date()
 
     # ========================= SLA + RISK =========================
@@ -2042,13 +2026,18 @@ def dashboard_analytics():
             "COMPANY","AREA","BRANCH","FINAL_DEADLINE","SLA","RISK"
         ])
     else:
-        df["DEADLINE"] = pd.to_datetime(df["DEADLINE"], errors='coerce').dt.date
-        df["DEADLINE_EXTENSION"] = pd.to_datetime(df["DEADLINE_EXTENSION"], errors='coerce').dt.date
+        df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors='coerce').dt.date
+        df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors='coerce').dt.date
+
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
 
         df["SLA"] = df["FINAL_DEADLINE"].apply(
             lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
+
+        # ✅ SAFE COLUMN ACCESS
+        df["SEC_CERT"] = df.get("SEC_CERT", "")
+        df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
 
         df["RISK"] = (
             (df["SLA"] == "LATE") * 40 +
@@ -2058,12 +2047,9 @@ def dashboard_analytics():
 
     # ========================= KPI =========================
     total = len(df)
-    late = len(df[df["SLA"] == "LATE"])
-    high_risk = len(df[df["RISK"] >= 70])
+    late = len(df[df["SLA"] == "LATE"]) if "SLA" in df.columns else 0
+    high_risk = len(df[df["RISK"] >= 70]) if "RISK" in df.columns else 0
     rate = ((total - late) / total * 100) if total else 0
-
-    if high_risk > 5:
-        send_alert(f"⚠️ High Risk Alert: {high_risk}")
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -2079,18 +2065,22 @@ def dashboard_analytics():
 
     # ========================= AI PREDICTION =========================
     st.subheader("🔮 AI Prediction")
-    df["PREDICTED_LATE"] = (df["RISK"] >= 50)
-    pred = df[df["PREDICTED_LATE"]]
 
-    st.metric("Predicted Late", len(pred))
-    if not pred.empty:
-        st.dataframe(pred)
+    if not df.empty:
+        df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
+        pred = df[df["PREDICTED_LATE"]]
+
+        st.metric("Predicted Late", len(pred))
+        if not pred.empty:
+            st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
 
     # ========================= LINE TREND =========================
     st.subheader("📈 SLA Trend")
+
     if not df.empty:
         trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-        st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
+        fig_line = px.line(trend, x="FINAL_DEADLINE", y="COUNT", markers=True)
+        st.plotly_chart(fig_line, use_container_width=True)
 
     # ========================= FUTURISTIC GRAPH =========================
     st.subheader("🌌 AI Risk Intelligence")
@@ -2132,14 +2122,12 @@ def dashboard_analytics():
     # ========================= WATERFALL =========================
     st.subheader("🌊 Risk Breakdown")
 
+    pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
+    missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
+
     fig2 = go.Figure(go.Waterfall(
         x=["Late","Pending","Missing","Total"],
-        y=[
-            late,
-            len(df[df["SEC_CERT"]=="PENDING"]),
-            len(df[df["GROSS_SALES_CERT"].isna()]),
-            total
-        ]
+        y=[late, pending, missing, total]
     ))
 
     st.plotly_chart(fig2, use_container_width=True)
