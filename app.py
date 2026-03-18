@@ -1653,6 +1653,7 @@ def secretary_certificates():
             "AREA",
             "MONTH_YEAR",
             "BRANCH",
+            "COMPANY",
             "REMARKS",
             "DATE_FORWARDED",
             "STATUS",
@@ -1690,7 +1691,7 @@ def secretary_certificates():
                 id_col="ID",
                 insert_sql="""
                     INSERT INTO SECRETARY_CERTIFICATES
-                    (AREA,MONTH_YEAR,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
+                    (AREA,MONTH_YEAR,BRANCH,COMPANY,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
@@ -1699,6 +1700,7 @@ def secretary_certificates():
                         AREA=%s,
                         MONTH_YEAR=%s,
                         BRANCH=%s,
+                        COMPANY=%s,
                         REMARKS=%s,
                         DATE_FORWARDED=%s,
                         STATUS=%s,
@@ -1710,6 +1712,7 @@ def secretary_certificates():
                     "AREA",
                     "MONTH_YEAR",
                     "BRANCH",
+                    "COMPANY",
                     "REMARKS",
                     "DATE_FORWARDED",
                     "STATUS",
@@ -1720,6 +1723,7 @@ def secretary_certificates():
                     "AREA",
                     "MONTH_YEAR",
                     "BRANCH",
+                    "COMPANY",
                     "REMARKS",
                     "DATE_FORWARDED",
                     "STATUS",
@@ -1740,7 +1744,7 @@ def secretary_certificates():
                 table_name="SECRETARY_CERTIFICATES",
                 insert_sql_with_id="""
                     INSERT INTO SECRETARY_CERTIFICATES
-                    (ID,AREA,MONTH_YEAR,BRANCH,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
+                    (ID,AREA,MONTH_YEAR,BRANCH,COMPANY,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
@@ -1748,6 +1752,7 @@ def secretary_certificates():
                     "AREA",
                     "MONTH_YEAR",
                     "BRANCH",
+                    "COMPANY",
                     "REMARKS",
                     "DATE_FORWARDED",
                     "STATUS",
