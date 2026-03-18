@@ -1971,8 +1971,7 @@ def secretary_certificates():
                     "FINAL_STATUS",
                 ],
             )
-
-            load_sec.clear()
+            
             st.session_state.sec_orig = load_sec()
 
             st.success("Data saved successfully ✅")
