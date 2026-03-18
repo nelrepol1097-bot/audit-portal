@@ -1636,18 +1636,19 @@ def tax_mapped():
 def secretary_certificates():
     st.title("📄 Secretary Certificates Compliance")
 
-    @st.cache_data(ttl=30, show_spinner=False)
+    # ---------------------------------------------------
+    # LOAD DATA (NO CACHE = REAL-TIME)
+    # ---------------------------------------------------
     def load_sec():
         conn, cursor = get_cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT
                 ID, AREA, MONTH_YEAR, BRANCH, COMPANY, REMARKS,
                 DATE_FORWARDED, STATUS, DATE_RECEIVED, FINAL_STATUS
             FROM SECRETARY_CERTIFICATES
-        """
-        )
+        """)
         data = cursor.fetchall()
+
         columns = [
             "ID",
             "AREA",
@@ -1660,13 +1661,20 @@ def secretary_certificates():
             "DATE_RECEIVED",
             "FINAL_STATUS",
         ]
+
         return pd.DataFrame(data, columns=columns)
 
     df = load_sec()
 
+    # ---------------------------------------------------
+    # SESSION STATE
+    # ---------------------------------------------------
     if "sec_orig" not in st.session_state:
         st.session_state.sec_orig = df.copy()
 
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1680,9 +1688,17 @@ def secretary_certificates():
 
     col_save, col_undo, col_refresh = st.columns(3)
 
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
     with col_save:
         if st.button("💾 Save Changes"):
+
             log_activity("Secretary Certificates", "SAVE")
+
+            # ✅ FIX NaN → NULL
+            edited_df = edited_df.copy()
+            edited_df = edited_df.where(pd.notnull(edited_df), None)
 
             handle_save_with_id(
                 df_name_prefix="sec",
@@ -1692,7 +1708,7 @@ def secretary_certificates():
                 insert_sql="""
                     INSERT INTO SECRETARY_CERTIFICATES
                     (AREA,MONTH_YEAR,BRANCH,COMPANY,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
                     UPDATE SECRETARY_CERTIFICATES
@@ -1732,20 +1748,25 @@ def secretary_certificates():
                 ],
             )
 
-            load_sec.clear()
+            # ✅ REAL-TIME REFRESH (NO .clear())
             st.session_state.sec_orig = load_sec()
+
             st.success("Data saved successfully ✅")
             safe_rerun()
 
+    # ---------------------------------------------------
+    # UNDO
+    # ---------------------------------------------------
     with col_undo:
         if st.button("↩ Undo last delete"):
+
             ok = handle_undo_with_id(
                 df_name_prefix="sec",
                 table_name="SECRETARY_CERTIFICATES",
                 insert_sql_with_id="""
                     INSERT INTO SECRETARY_CERTIFICATES
                     (ID,AREA,MONTH_YEAR,BRANCH,COMPANY,REMARKS,DATE_FORWARDED,STATUS,DATE_RECEIVED,FINAL_STATUS)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
                     "ID",
@@ -1760,17 +1781,19 @@ def secretary_certificates():
                     "FINAL_STATUS",
                 ],
             )
+
             if ok:
-                load_sec.clear()
                 st.session_state.sec_orig = load_sec()
                 st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
     with col_refresh:
         if st.button("🔄 Refresh"):
-            load_sec.clear()
             st.session_state.sec_orig = load_sec()
             safe_rerun()
 
