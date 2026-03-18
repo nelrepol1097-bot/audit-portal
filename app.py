@@ -1777,131 +1777,73 @@ def dashboard_analytics():
     st.title("📊 Compliance Executive Dashboard")
 
     # =========================
-    # DATA LOADERS (CACHED)
+    # DATA LOADERS
     # =========================
-    @st.cache_data(ttl=60, show_spinner=False)
+    @st.cache_data(ttl=60)
     def load_business_status():
         conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT STATUS, COUNT(*) AS CNT
+        cursor.execute("""
+            SELECT STATUS, COUNT(*) 
             FROM BUSINESS_PERMIT
             GROUP BY STATUS
-        """
-        )
+        """)
         return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
 
-    @st.cache_data(ttl=60, show_spinner=False)
+    @st.cache_data(ttl=60)
     def load_area_distribution():
         conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT AREA, COUNT(*) AS CNT
+        cursor.execute("""
+            SELECT AREA, COUNT(*) 
             FROM BRANCH_TIN_ADDRESS
             GROUP BY AREA
-        """
-        )
+        """)
         return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
 
-    @st.cache_data(ttl=60, show_spinner=False)
+    @st.cache_data(ttl=60)
     def load_overview_sla():
         conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT
-                COMPANY,
-                AREA,
-                BRANCH,
-                DEADLINE,
-                DEADLINE_EXTENSION,
-                BUSINESS_PERMIT_2025,
-                BRGY_PERMIT_2025,
-                SEC_CERT,
-                GROSS_SALES_CERT
+        cursor.execute("""
+            SELECT COMPANY, AREA, BRANCH,
+                   DEADLINE, DEADLINE_EXTENSION,
+                   BUSINESS_PERMIT_2025,
+                   BRGY_PERMIT_2025,
+                   SEC_CERT,
+                   GROSS_SALES_CERT
             FROM BUSINESS_PERMIT_OVERVIEW
-        """
-        )
+        """)
         cols = [
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "DEADLINE",
-            "DEADLINE_EXTENSION",
-            "BUSINESS_PERMIT_2025",
-            "BRGY_PERMIT_2025",
-            "SEC_CERT",
-            "GROSS_SALES_CERT",
+            "COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION",
+            "BUSINESS_PERMIT_2025","BRGY_PERMIT_2025",
+            "SEC_CERT","GROSS_SALES_CERT"
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    @st.cache_data(ttl=60, show_spinner=False)
-    def load_pending_permits():
+    @st.cache_data(ttl=60)
+    def load_pending():
         conn, cursor = get_cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COMPANY, AREA, BRANCH, STATUS
             FROM BUSINESS_PERMIT
             WHERE STATUS != 'DONE'
-        """
-        )
-        return pd.DataFrame(
-            cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"]
-        )
-
-    @st.cache_data(ttl=60, show_spinner=False)
-    def load_fire_safety_status():
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT AREA, BRANCH, FSIC_VALIDITY
-            FROM FIRE_SAFETY
-            """
-        )
-        df = pd.DataFrame(cursor.fetchall(), columns=["AREA", "BRANCH", "FSIC_VALIDITY"])
-
-        if not df.empty:
-            df["FSIC_VALIDITY"] = pd.to_datetime(df["FSIC_VALIDITY"]).dt.date
-            today = datetime.today().date()
-
-            def fsic_status(d):
-                if pd.isna(d):
-                    return "NO_FSIC"
-                if d < today:
-                    return "EXPIRED"
-                return "VALID"
-
-            df["FSIC_STATUS"] = df["FSIC_VALIDITY"].apply(fsic_status)
-
-        return df
-
-    @st.cache_data(ttl=60, show_spinner=False)
-    def load_tax_mapped_simple():
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT AREA, BRANCH, DATE_TAX_MAPPED, BIR_REMARKS
-            FROM TAX_MAPPED
-        """
-        )
-        return pd.DataFrame(
-            cursor.fetchall(), columns=["AREA", "BRANCH", "DATE_TAX_MAPPED", "BIR_REMARKS"]
-        )
+        """)
+        return pd.DataFrame(cursor.fetchall(), columns=["COMPANY","AREA","BRANCH","STATUS"])
 
     # =========================
-    # CORE DATA + DERIVED FIELDS
+    # LOAD DATA
     # =========================
     df_status = load_business_status()
     df_area = load_area_distribution()
     df_overview = load_overview_sla()
-    df_pending = load_pending_permits()
-    df_fire = load_fire_safety_status()
-    df_tax = load_tax_mapped_simple()
+    df_pending = load_pending()
 
     today = datetime.today().date()
 
-        # SLA status per branch (on‑time / late)
+    # =========================
+    # SLA LOGIC
+    # =========================
     if not df_overview.empty:
         df_overview_work = df_overview.copy()
+
         for c in ["DEADLINE", "DEADLINE_EXTENSION"]:
             df_overview_work[c] = pd.to_datetime(df_overview_work[c]).dt.date
 
@@ -1910,38 +1852,32 @@ def dashboard_analytics():
         )
 
         df_overview_work["SLA_STATUS"] = df_overview_work["EFFECTIVE_DEADLINE"].apply(
-            lambda d: "NO_DEADLINE"
-            if pd.isna(d)
-            else ("LATE" if d < today else "ON_TIME")
+            lambda d: "NO_DEADLINE" if pd.isna(d) else ("LATE" if d < today else "ON_TIME")
         )
     else:
-        # empty dataframe with the same columns plus the ones we add later
-        df_overview_work = df_overview.copy()
-        df_overview_work["EFFECTIVE_DEADLINE"] = pd.NaT
-        df_overview_work["SLA_STATUS"] = []
+        df_overview_work = pd.DataFrame()
 
-    # Risk scoring (simple rule‑based: 0–100)
+    # =========================
+    # RISK SCORING
+    # =========================
     def compute_risk(row):
         score = 0
-        # base: pending business permits
+
         if not df_pending.empty:
             has_pending = (
-                (df_pending["COMPANY"] == row["COMPANY"])
-                & (df_pending["AREA"] == row["AREA"])
-                & (df_pending["BRANCH"] == row["BRANCH"])
+                (df_pending["COMPANY"] == row["COMPANY"]) &
+                (df_pending["AREA"] == row["AREA"]) &
+                (df_pending["BRANCH"] == row["BRANCH"])
             ).any()
             if has_pending:
                 score += 40
 
-        # SLA late
         if row.get("SLA_STATUS") == "LATE":
             score += 40
 
-        # SEC cert pending / processing
         if row.get("SEC_CERT") in ["PENDING", "PROCESSING"]:
             score += 10
 
-        # missing gross sales cert
         if pd.isna(row.get("GROSS_SALES_CERT")):
             score += 10
 
@@ -1950,202 +1886,100 @@ def dashboard_analytics():
     if not df_overview_work.empty:
         df_overview_work["RISK_SCORE"] = df_overview_work.apply(compute_risk, axis=1)
 
-        def risk_bucket(score):
-            if score >= 70:
-                return "RED"
-            if score >= 40:
-                return "YELLOW"
+        def risk_bucket(x):
+            if x >= 70: return "RED"
+            if x >= 40: return "YELLOW"
             return "GREEN"
 
         df_overview_work["RISK_BUCKET"] = df_overview_work["RISK_SCORE"].apply(risk_bucket)
-    else:
-        df_overview_work["RISK_SCORE"] = []
-        df_overview_work["RISK_BUCKET"] = []
 
     # =========================
-    # KPI ROW
+    # KPI
     # =========================
     total_branches = int(df_area["COUNT"].sum()) if not df_area.empty else 0
-    done_permits = int(
-        df_status.loc[df_status["STATUS"] == "DONE", "COUNT"].sum()
-    ) if not df_status.empty else 0
-    total_permits = int(df_status["COUNT"].sum()) if not df_status.empty else 0
-    completion_rate = (done_permits / total_permits * 100) if total_permits else 0
+    done = int(df_status[df_status["STATUS"] == "DONE"]["COUNT"].sum()) if not df_status.empty else 0
+    total = int(df_status["COUNT"].sum()) if not df_status.empty else 0
+    rate = (done / total * 100) if total else 0
 
-        if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
-        late_branches = int(
-            df_overview_work.loc[df_overview_work["SLA_STATUS"] == "LATE"].shape[0]
-        )
+    if not df_overview_work.empty and "SLA_STATUS" in df_overview_work:
+        late = int(df_overview_work[df_overview_work["SLA_STATUS"] == "LATE"].shape[0])
     else:
-        late_branches = 0
+        late = 0
 
-    if not df_overview_work.empty and "RISK_BUCKET" in df_overview_work.columns:
-        high_risk = int(
-            df_overview_work.loc[df_overview_work["RISK_BUCKET"] == "RED"].shape[0]
-        )
+    if not df_overview_work.empty and "RISK_BUCKET" in df_overview_work:
+        high_risk = int(df_overview_work[df_overview_work["RISK_BUCKET"] == "RED"].shape[0])
     else:
         high_risk = 0
 
-    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
-    col_kpi1.metric("Total Branches", f"{total_branches}")
-    col_kpi2.metric("Permit Completion", f"{completion_rate:.1f} %")
-    col_kpi3.metric("Late vs SLA", f"{late_branches}")
-    col_kpi4.metric("High‑Risk Branches (RED)", f"{high_risk}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Branches", total_branches)
+    c2.metric("Completion %", f"{rate:.1f}%")
+    c3.metric("Late SLA", late)
+    c4.metric("High Risk", high_risk)
 
     st.divider()
 
     # =========================
-    # LAYOUT: LEFT (charts) / RIGHT (table + drill‑down)
+    # CHARTS + TABLE
     # =========================
-    left_col, right_col = st.columns([2, 1.6])
+    left, right = st.columns([2, 1.5])
 
-    # ----- LEFT: charts -----
-    with left_col:
-        st.subheader("Portfolio View")
-
-        # Business permit status
+    with left:
         if not df_status.empty:
-            fig1 = px.pie(
-                df_status,
-                values="COUNT",
-                names="STATUS",
-                title="Business Permit Status",
-                hole=0.4,
+            st.plotly_chart(
+                px.pie(df_status, values="COUNT", names="STATUS"),
+                width="stretch"
             )
-            st.plotly_chart(fig1, use_container_width=True)
 
-        # Area distribution + average risk
         if not df_area.empty:
-            if not df_overview_work.empty:
-                risk_by_area = (
-                    df_overview_work.groupby("AREA")["RISK_SCORE"].mean().reset_index()
-                )
-                df_area_risk = df_area.merge(risk_by_area, on="AREA", how="left")
-            else:
-                df_area_risk = df_area.copy()
-                df_area_risk["RISK_SCORE"] = 0
-
-            fig2 = px.bar(
-                df_area_risk,
-                x="AREA",
-                y="COUNT",
-                color="RISK_SCORE",
-                color_continuous_scale=["#2ecc71", "#f1c40f", "#e74c3c"],
-                title="Branches by Area (color = avg risk)",
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-
-        # SLA status chart
-    if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
-            sla_counts = df_overview_work["SLA_STATUS"].value_counts().reset_index()
-            sla_counts.columns = ["SLA_STATUS", "COUNT"]
-
-            fig3 = px.bar(
-                sla_counts,
-                x="SLA_STATUS",
-                y="COUNT",
-                title="SLA Status Distribution",
-                color="SLA_STATUS",
-                color_discrete_map={
-                    "ON_TIME": "#2ecc71",
-                    "LATE": "#e74c3c",
-                    "NO_DEADLINE": "#95a5a6",
-                },
-            )
-            st.plotly_chart(fig3, use_container_width=True)
-
-    # ----- RIGHT: drill‑down table -----
-    with right_col:
-        st.subheader("Drill‑Down: Branch Details")
-
-        # pick by area then branch (acts like click‑through)
-        areas = sorted(df_overview_work["AREA"].dropna().unique()) if not df_overview_work.empty else []
-        selected_area = st.selectbox("Select Area", ["All"] + list(areas))
-
-        if selected_area == "All":
-            df_branch_view = df_overview_work.copy()
-        else:
-            df_branch_view = df_overview_work[df_overview_work["AREA"] == selected_area]
-
-        # join pending + risk bucket for richer view
-        if not df_branch_view.empty and not df_pending.empty:
-            df_branch_view = df_branch_view.merge(
-                df_pending[["COMPANY", "AREA", "BRANCH", "STATUS"]]
-                .rename(columns={"STATUS": "PERMIT_STATUS"}),
-                on=["COMPANY", "AREA", "BRANCH"],
-                how="left",
+            st.plotly_chart(
+                px.bar(df_area, x="AREA", y="COUNT"),
+                width="stretch"
             )
 
-        cols_show = [
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "EFFECTIVE_DEADLINE",
-            "SLA_STATUS",
-            "PERMIT_STATUS",
-            "SEC_CERT",
-            "RISK_SCORE",
-            "RISK_BUCKET",
-        ]
-        cols_show = [c for c in cols_show if c in df_branch_view.columns]
+        if not df_overview_work.empty:
+            sla = df_overview_work["SLA_STATUS"].value_counts().reset_index()
+            sla.columns = ["STATUS", "COUNT"]
 
-        st.dataframe(
-            df_branch_view[cols_show].sort_values("RISK_SCORE", ascending=False),
-            use_container_width=True,
-        )
+            st.plotly_chart(
+                px.bar(sla, x="STATUS", y="COUNT"),
+                width="stretch"
+            )
+
+    with right:
+        st.subheader("Branch Drilldown")
+
+        if not df_overview_work.empty:
+            areas = ["All"] + sorted(df_overview_work["AREA"].dropna().unique())
+            sel = st.selectbox("Area", areas)
+
+            df_view = df_overview_work if sel == "All" else df_overview_work[df_overview_work["AREA"] == sel]
+
+            st.dataframe(df_view, width="stretch")
 
     st.divider()
 
     # =========================
-    # AI INSIGHTS / RISK NARRATIVE
+    # AI INSIGHTS
     # =========================
-    st.subheader("🤖 AI Risk & Compliance Insights")
-
-    if st.button("Generate AI Summary"):
-        # compact numeric context
-        ctx = {
-            "total_branches": total_branches,
-            "completion_rate": round(completion_rate, 1),
-            "late_branches": late_branches,
-            "high_risk": high_risk,
-        }
-
-        # small top‑N risk table as text
-        top_risk = (
-            df_overview_work.sort_values("RISK_SCORE", ascending=False)
-            .head(10)[["COMPANY", "AREA", "BRANCH", "RISK_SCORE", "RISK_BUCKET"]]
-            .to_dict(orient="records")
-            if not df_overview_work.empty
-            else []
-        )
-
+    if st.button("🤖 Generate AI Insights"):
         prompt = f"""
-        You are a senior compliance risk officer.
+        Total branches: {total_branches}
+        Completion rate: {rate:.1f}%
+        Late branches: {late}
+        High risk: {high_risk}
 
-        Here is the current compliance snapshot (aggregated):
-        {ctx}
-
-        Top 10 highest-risk branches (if any), with scores 0-100:
-        {top_risk}
-
-        Tasks:
-        1. Give a concise executive-level summary (2-3 bullets).
-        2. Call out the top areas / patterns of concern.
-        3. Suggest 3-5 concrete next actions in priority order.
-        Be direct and business-oriented. Do not repeat raw numbers verbatim.
+        Give executive insights and actions.
         """
 
-        with st.spinner("Analyzing portfolio..."):
-            try:
-                resp = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                ai_text = resp.choices[0].message.content
-                st.markdown(ai_text)
-            except Exception as e:
-                st.error(f"AI analysis failed: {e}")
-
+        try:
+            res = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            st.write(res.choices[0].message.content)
+        except Exception as e:
+            st.error(e)
 
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
