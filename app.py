@@ -1994,6 +1994,15 @@ def dashboard_analytics():
         transform: scale(1.08);
         box-shadow: 0 0 40px cyan;
     }
+
+    .infographic {
+        background: rgba(0,255,255,0.05);
+        border-radius:20px;
+        padding:20px;
+        backdrop-filter: blur(15px);
+        box-shadow: 0 0 30px rgba(0,255,255,0.2);
+        margin-top:20px;
+    }
     </style>
 
     <div class="title-glow">⚡ COMPLIANCE COMMAND CENTER ⚡</div>
@@ -2014,28 +2023,19 @@ def dashboard_analytics():
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     df = load_data()
-
-    # ✅ FIX COLUMN CASE ISSUE
     df.columns = df.columns.str.upper()
-
     today = datetime.today().date()
 
     # ========================= SLA + RISK =========================
-    if df.empty:
-        df = pd.DataFrame(columns=[
-            "COMPANY","AREA","BRANCH","FINAL_DEADLINE","SLA","RISK"
-        ])
-    else:
+    if not df.empty:
         df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors='coerce').dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors='coerce').dt.date
-
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
 
         df["SLA"] = df["FINAL_DEADLINE"].apply(
             lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
 
-        # ✅ SAFE COLUMN ACCESS
         df["SEC_CERT"] = df.get("SEC_CERT", "")
         df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
 
@@ -2047,24 +2047,46 @@ def dashboard_analytics():
 
     # ========================= KPI =========================
     total = len(df)
-    late = len(df[df["SLA"] == "LATE"]) if "SLA" in df.columns else 0
-    high_risk = len(df[df["RISK"] >= 70]) if "RISK" in df.columns else 0
+    late = len(df[df["SLA"] == "LATE"])
+    high_risk = len(df[df["RISK"] >= 70])
     rate = ((total - late) / total * 100) if total else 0
 
     c1, c2, c3, c4 = st.columns(4)
-
     c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
-    # ========================= SCORECARD =========================
-    st.subheader("🎯 KPI Scorecard")
-    st.metric("Completion", f"{rate:.1f}%", f"{rate - 90:.1f}%")
-    st.metric("Late", late, late - 5)
+    # ========================= 🌌 INFOGRAPHIC =========================
+    st.markdown('<div class="infographic">', unsafe_allow_html=True)
 
-    # ========================= AI PREDICTION =========================
-    st.subheader("🔮 AI Prediction")
+    st.subheader("⚡ Executive Infographic Report")
+
+    colA, colB, colC = st.columns(3)
+    colA.metric("Total", total)
+    colB.metric("Over SLA", late)
+    colC.metric("High Risk", high_risk)
+
+    if total > 0:
+        sla_rate = (late / total) * 100
+
+        st.write(f"""
+        • {total} total transactions processed  
+        • {late} are delayed (**{sla_rate:.1f}% SLA breach**)  
+        • {high_risk} high-risk cases detected  
+        """)
+
+        if sla_rate > 50:
+            st.error("🔴 Critical SLA failure")
+        elif sla_rate > 20:
+            st.warning("🟡 Moderate SLA risk")
+        else:
+            st.success("🟢 SLA under control")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ========================= 🔮 AI PREDICTION =========================
+    st.subheader("🔮 SLA Prediction")
 
     if not df.empty:
         df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
@@ -2074,56 +2096,34 @@ def dashboard_analytics():
         if not pred.empty:
             st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
 
-    # ========================= LINE TREND =========================
-    st.subheader("📈 SLA Trend")
+    # ========================= ⚡ SHOCK GRAPH =========================
+    st.subheader("⚡ Shock Trend Analysis")
 
     if not df.empty:
-        trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-        fig_line = px.line(trend, x="FINAL_DEADLINE", y="COUNT", markers=True)
-        st.plotly_chart(fig_line, use_container_width=True)
+        shock_df = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
 
-    # ========================= FUTURISTIC GRAPH =========================
-    st.subheader("🌌 AI Risk Intelligence")
-
-    if not df.empty:
-        futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=futuristic_df["FINAL_DEADLINE"],
-            y=futuristic_df["RISK"],
+        fig_shock = go.Figure()
+        fig_shock.add_trace(go.Scatter(
+            x=shock_df["FINAL_DEADLINE"],
+            y=shock_df["COUNT"],
             mode='lines+markers',
-            line=dict(width=5),
-            marker=dict(size=10)
+            line=dict(width=6),
+            marker=dict(size=12)
         ))
 
-        fig.update_layout(
+        fig_shock.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#00f7ff"),
-            title="⚡ Risk Intelligence"
+            font=dict(color="#00f7ff")
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_shock, use_container_width=True)
 
-        # ========================= ADVANCED ANALYTICS =========================
-        st.subheader("🧠 Advanced Insights")
-
-        latest = futuristic_df["RISK"].iloc[-1]
-        avg = futuristic_df["RISK"].mean()
-
-        if latest > avg:
-            st.error("🔴 Risk increasing")
-        else:
-            st.success("🟢 Risk stable")
-
-        st.write(f"📌 Peak Risk: {futuristic_df['RISK'].max():.2f}")
-
-    # ========================= WATERFALL =========================
+    # ========================= 🌊 WATERFALL =========================
     st.subheader("🌊 Risk Breakdown")
 
-    pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
-    missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
+    pending = len(df[df["SEC_CERT"] == "PENDING"])
+    missing = len(df[df["GROSS_SALES_CERT"].isna()])
 
     fig2 = go.Figure(go.Waterfall(
         x=["Late","Pending","Missing","Total"],
@@ -2132,38 +2132,32 @@ def dashboard_analytics():
 
     st.plotly_chart(fig2, use_container_width=True)
 
-    # ========================= AREA =========================
+    # ========================= 🌍 AREA =========================
     st.subheader("🌍 Area Analysis")
 
-    if not df.empty:
-        area_df = df.groupby("AREA").size().reset_index(name="COUNT")
-        fig_bar = px.bar(area_df, x="AREA", y="COUNT")
+    area_df = df.groupby("AREA").size().reset_index(name="COUNT")
+    fig_bar = px.bar(area_df, x="AREA", y="COUNT")
 
-        selected = plotly_events(fig_bar, click_event=True)
-        st.plotly_chart(fig_bar, use_container_width=True)
+    selected = plotly_events(fig_bar, click_event=True)
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-        if selected:
-            st.dataframe(df[df["AREA"] == selected[0]["x"]])
+    if selected:
+        st.dataframe(df[df["AREA"] == selected[0]["x"]])
 
-    # ========================= GPT =========================
+    # ========================= 🤖 GPT =========================
     st.subheader("🤖 AI Insights")
 
-    if not df.empty:
-        company = st.selectbox("Company", df["COMPANY"].unique())
+    company = st.selectbox("Company", df["COMPANY"].unique())
 
-        if st.button("Generate Insight"):
-            try:
-                data = df[df["COMPANY"] == company].to_string()
+    if st.button("Generate Insight"):
+        data = df[df["COMPANY"] == company].to_string()
 
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": f"Analyze:\n{data}"}]
-                )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": f"Analyze:\n{data}"}]
+        )
 
-                st.success(response.choices[0].message.content)
-
-            except Exception as e:
-                st.error(e)
+        st.success(response.choices[0].message.content)
 
     # ========================= TABLE =========================
     st.subheader("📋 Data")
