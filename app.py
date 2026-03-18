@@ -1968,62 +1968,34 @@ def board_resolutions():
 # ---------------------------------------------------
 # DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
-from streamlit_plotly_events import plotly_events
-import plotly.graph_objects as go
-
 def dashboard_analytics():
     st.title("📊 Compliance Executive Dashboard")
 
     # =========================================================
-    # 🚀 FUTURISTIC UI (UPGRADED)
+    # 🚀 FUTURISTIC UI
     # =========================================================
     st.markdown("""
     <style>
-    body {
-        background-color: #0f172a;
-    }
-
-    @keyframes glowPulse {
-        0% { box-shadow: 0 0 10px #00d4ff; }
-        50% { box-shadow: 0 0 40px #00d4ff; }
-        100% { box-shadow: 0 0 10px #00d4ff; }
-    }
-
+    body {background-color:#0f172a;}
     .holo-header {
         text-align:center;
         font-size:32px;
         font-weight:bold;
         color:#00d4ff;
-        text-shadow: 0 0 20px #00d4ff, 0 0 50px #00d4ff;
+        text-shadow: 0 0 20px #00d4ff;
     }
-
     .kpi-card {
-        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
-        animation: glowPulse 2s infinite;
-        transition: 0.3s;
+        background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+        padding:20px;
+        border-radius:15px;
+        text-align:center;
+        transition:0.3s;
     }
-
     .kpi-card:hover {
         transform: scale(1.05);
         box-shadow: 0 0 50px cyan;
     }
-
-    .panel {
-        padding: 15px;
-        border-radius: 15px;
-        background: rgba(255,255,255,0.05);
-        backdrop-filter: blur(10px);
-        margin-bottom: 15px;
-    }
-
-    .alert-red {background: rgba(231,76,60,0.2); padding:10px; border-left:5px solid #e74c3c;}
-    .alert-yellow {background: rgba(241,196,15,0.2); padding:10px; border-left:5px solid #f1c40f;}
-    .alert-green {background: rgba(46,204,113,0.2); padding:10px; border-left:5px solid #2ecc71;}
     </style>
-
     <div class="holo-header">⚡ COMPLIANCE COMMAND CENTER ⚡</div>
     """, unsafe_allow_html=True)
 
@@ -2045,20 +2017,25 @@ def dashboard_analytics():
     today = datetime.today().date()
 
     # =========================================================
-    # SLA + RISK
+    # SLA + RISK (SAFE)
     # =========================================================
-    if not df.empty:
-        df["DEADLINE"] = pd.to_datetime(df["DEADLINE"]).dt.date
-        df["DEADLINE_EXTENSION"] = pd.to_datetime(df["DEADLINE_EXTENSION"]).dt.date
+    if df.empty:
+        df = pd.DataFrame(columns=[
+            "COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION",
+            "SEC_CERT","GROSS_SALES_CERT","FINAL_DEADLINE","SLA","RISK"
+        ])
+    else:
+        df["DEADLINE"] = pd.to_datetime(df["DEADLINE"], errors='coerce').dt.date
+        df["DEADLINE_EXTENSION"] = pd.to_datetime(df["DEADLINE_EXTENSION"], errors='coerce').dt.date
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
 
         df["SLA"] = df["FINAL_DEADLINE"].apply(
-            lambda d: "LATE" if d < today else "ON_TIME"
+            lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
 
         df["RISK"] = (
             (df["SLA"] == "LATE") * 40 +
-            (df["SEC_CERT"] == "PENDING") * 30 +
+            (df["SEC_CERT"].fillna("") == "PENDING") * 30 +
             (df["GROSS_SALES_CERT"].isna()) * 30
         )
 
@@ -2070,108 +2047,114 @@ def dashboard_analytics():
     high_risk = len(df[df["RISK"]>=70])
     rate = ((total-late)/total*100) if total else 0
 
-    c1,c2,c3,c4 = st.columns(4)
+    # 📡 ALERT TRIGGER
+    if high_risk > 5:
+        send_alert(f"⚠️ High Risk Alert: {high_risk} branches detected")
 
+    c1,c2,c3,c4 = st.columns(4)
     c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
+    # =========================================================
+    # 🎯 KPI SCORECARD
+    # =========================================================
+    st.subheader("🎯 KPI Scorecard")
+    TARGET_COMPLETION = 90
+    TARGET_LATE = 5
+
+    colA, colB = st.columns(2)
+    colA.metric("Completion Target", f"{rate:.1f}%", f"{rate - TARGET_COMPLETION:.1f}%")
+    colB.metric("Late Target", late, late - TARGET_LATE)
+
     st.divider()
 
     # =========================================================
-    # 📈 LINE TREND (NEW)
+    # 🔮 AI PREDICTION
     # =========================================================
-    st.markdown("### 📈 SLA Trend Over Time")
+    st.subheader("🔮 SLA Prediction")
+
+    if not df.empty:
+        df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
+        pred = df[df["PREDICTED_LATE"]]
+
+        st.metric("Predicted Late", len(pred))
+
+        if not pred.empty:
+            st.warning("⚠️ Future delays expected")
+            st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
+
+    # =========================================================
+    # 📈 LINE TREND
+    # =========================================================
+    st.subheader("📈 SLA Trend")
 
     if not df.empty:
         trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-
-        fig_line = px.line(trend, x="FINAL_DEADLINE", y="COUNT",
-                           markers=True)
-
+        fig_line = px.line(trend, x="FINAL_DEADLINE", y="COUNT", markers=True)
         st.plotly_chart(fig_line, use_container_width=True)
 
-        # 🤖 Insight
-        if trend["COUNT"].iloc[-1] > trend["COUNT"].mean():
-            st.warning("⚠️ Increasing compliance workload trend")
-        else:
-            st.success("✅ Stable trend")
-
     # =========================================================
-    # 🌊 WATERFALL (NEW)
+    # 🌊 WATERFALL
     # =========================================================
-    st.markdown("### 🌊 Risk Breakdown")
-
-    risk_late = len(df[df["SLA"]=="LATE"])
-    risk_pending = len(df[df["SEC_CERT"]=="PENDING"])
-    risk_missing = len(df[df["GROSS_SALES_CERT"].isna()])
+    st.subheader("🌊 Risk Breakdown")
 
     fig_waterfall = go.Figure(go.Waterfall(
-        x=["Late SLA", "Pending SEC", "Missing Sales", "Total Risk"],
-        y=[risk_late, risk_pending, risk_missing,
-           risk_late + risk_pending + risk_missing]
+        x=["Late","Pending","Missing","Total"],
+        y=[
+            len(df[df["SLA"]=="LATE"]),
+            len(df[df["SEC_CERT"]=="PENDING"]),
+            len(df[df["GROSS_SALES_CERT"].isna()]),
+            total
+        ]
     ))
-
     st.plotly_chart(fig_waterfall, use_container_width=True)
 
-    st.info("📊 Main driver of risk is SLA delay" if risk_late > risk_pending else "📊 Certification delays dominant")
-
     # =========================================================
-    # 🎯 INTERACTIVE AREA ANALYSIS
+    # 🌍 AREA
     # =========================================================
-    st.markdown("### 🌍 Area Intelligence")
+    st.subheader("🌍 Area Analysis")
 
     if not df.empty:
         area_df = df.groupby("AREA").size().reset_index(name="COUNT")
-
         fig_bar = px.bar(area_df, x="AREA", y="COUNT", color="COUNT")
 
         selected = plotly_events(fig_bar, click_event=True)
         st.plotly_chart(fig_bar, use_container_width=True)
 
         if selected:
-            area = selected[0]["x"]
-            st.warning(f"📍 Drilldown: {area}")
-            st.dataframe(df[df["AREA"]==area])
-
-    # =========================================================
-    # ⚡ RISK SCATTER
-    # =========================================================
-    st.markdown("### ⚡ Risk Heatmap")
-
-    if not df.empty:
-        fig_scatter = px.scatter(df, x="AREA", y="RISK",
-                                 size="RISK", color="RISK")
-
-        selected = plotly_events(fig_scatter, click_event=True)
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-        if selected:
-            st.error("⚠️ High Risk Drilldown")
             st.dataframe(df[df["AREA"]==selected[0]["x"]])
 
     # =========================================================
-    # 🤖 AI INSIGHTS PANEL (UPGRADED)
+    # 🤖 GPT INSIGHTS
     # =========================================================
-    st.markdown("### 🤖 AI Executive Insights")
+    st.subheader("🤖 AI Company Insights")
 
-    insights = []
+    if not df.empty:
+        company = st.selectbox("Select Company", df["COMPANY"].unique())
 
-    if high_risk > 0:
-        insights.append("🔴 High-risk branches require immediate intervention")
-    if late > total * 0.3:
-        insights.append("⚠️ SLA breach trend critical (>30%)")
-    if rate > 85:
-        insights.append("🟢 Strong compliance performance")
+        if st.button("Generate Insight"):
+            try:
+                data = df[df["COMPANY"]==company].to_string()
 
-    for i in insights:
-        st.markdown(f"- {i}")
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{
+                        "role":"user",
+                        "content":f"Analyze this compliance data:\n{data}"
+                    }]
+                )
+
+                st.success(response.choices[0].message.content)
+
+            except Exception as e:
+                st.error(e)
 
     # =========================================================
-    # 📋 TABLE
+    # TABLE
     # =========================================================
-    st.markdown("### 📋 Full Drilldown Table")
+    st.subheader("📋 Full Data")
     st.dataframe(df, use_container_width=True)
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
