@@ -1969,6 +1969,7 @@ def board_resolutions():
 
 def dashboard_analytics():
 
+    # ========================= UI =========================
     st.markdown("""
     <style>
     body {background: linear-gradient(135deg,#0f172a,#020617);}
@@ -2023,41 +2024,62 @@ def dashboard_analytics():
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     df = load_data()
+
+    # ✅ normalize columns (CRITICAL FIX)
     df.columns = df.columns.str.upper()
+
     today = datetime.today().date()
 
-    # ========================= SLA + RISK =========================
+    # ========================= SAFE DEFAULT =========================
+    if df.empty:
+        df = pd.DataFrame(columns=[
+            "COMPANY","AREA","BRANCH",
+            "FINAL_DEADLINE","SLA","RISK",
+            "SEC_CERT","GROSS_SALES_CERT"
+        ])
+
+    # ========================= SAFE BUILD =========================
     if not df.empty:
+
         df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors='coerce').dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors='coerce').dt.date
+
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
 
+        # SAFE SLA
         df["SLA"] = df["FINAL_DEADLINE"].apply(
             lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
 
+        # SAFE COLUMN ACCESS
         df["SEC_CERT"] = df.get("SEC_CERT", "")
         df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
 
+        # SAFE RISK
         df["RISK"] = (
             (df["SLA"] == "LATE") * 40 +
             (df["SEC_CERT"].fillna("") == "PENDING") * 30 +
             (df["GROSS_SALES_CERT"].isna()) * 30
         )
 
-    # ========================= KPI =========================
-    total = len(df)
-    late = len(df[df["SLA"] == "LATE"])
-    high_risk = len(df[df["RISK"] >= 70])
-    rate = ((total - late) / total * 100) if total else 0
+    # ========================= KPI (NO ERROR VERSION) =========================
+    if df.empty or "SLA" not in df.columns:
+        total = late = high_risk = rate = 0
+    else:
+        total = len(df)
+        late = len(df[df["SLA"] == "LATE"])
+        high_risk = len(df[df["RISK"] >= 70]) if "RISK" in df.columns else 0
+        rate = ((total - late) / total * 100) if total else 0
 
+    # ========================= KPI CARDS =========================
     c1, c2, c3, c4 = st.columns(4)
+
     c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
-    # ========================= 🌌 INFOGRAPHIC =========================
+    # ========================= INFOGRAPHIC =========================
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
 
     st.subheader("⚡ Executive Infographic Report")
@@ -2071,9 +2093,9 @@ def dashboard_analytics():
         sla_rate = (late / total) * 100
 
         st.write(f"""
-        • {total} total transactions processed  
-        • {late} are delayed (**{sla_rate:.1f}% SLA breach**)  
-        • {high_risk} high-risk cases detected  
+        • {total} total processed  
+        • {late} delayed (**{sla_rate:.1f}% SLA breach**)  
+        • {high_risk} high-risk detected  
         """)
 
         if sla_rate > 50:
@@ -2081,11 +2103,11 @@ def dashboard_analytics():
         elif sla_rate > 20:
             st.warning("🟡 Moderate SLA risk")
         else:
-            st.success("🟢 SLA under control")
+            st.success("🟢 SLA stable")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ========================= 🔮 AI PREDICTION =========================
+    # ========================= AI PREDICTION =========================
     st.subheader("🔮 SLA Prediction")
 
     if not df.empty:
@@ -2096,34 +2118,34 @@ def dashboard_analytics():
         if not pred.empty:
             st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
 
-    # ========================= ⚡ SHOCK GRAPH =========================
-    st.subheader("⚡ Shock Trend Analysis")
+    # ========================= TREND =========================
+    st.subheader("📈 SLA Trend")
 
     if not df.empty:
-        shock_df = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
+        trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
+        st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
 
-        fig_shock = go.Figure()
-        fig_shock.add_trace(go.Scatter(
-            x=shock_df["FINAL_DEADLINE"],
-            y=shock_df["COUNT"],
-            mode='lines+markers',
-            line=dict(width=6),
-            marker=dict(size=12)
+    # ========================= FUTURISTIC GRAPH =========================
+    st.subheader("🌌 AI Risk Intelligence")
+
+    if not df.empty:
+        futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=futuristic_df["FINAL_DEADLINE"],
+            y=futuristic_df["RISK"],
+            mode='lines+markers'
         ))
 
-        fig_shock.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#00f7ff")
-        )
+        fig.update_layout(template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
-        st.plotly_chart(fig_shock, use_container_width=True)
-
-    # ========================= 🌊 WATERFALL =========================
+    # ========================= WATERFALL =========================
     st.subheader("🌊 Risk Breakdown")
 
-    pending = len(df[df["SEC_CERT"] == "PENDING"])
-    missing = len(df[df["GROSS_SALES_CERT"].isna()])
+    pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
+    missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
 
     fig2 = go.Figure(go.Waterfall(
         x=["Late","Pending","Missing","Total"],
@@ -2132,32 +2154,18 @@ def dashboard_analytics():
 
     st.plotly_chart(fig2, use_container_width=True)
 
-    # ========================= 🌍 AREA =========================
+    # ========================= AREA =========================
     st.subheader("🌍 Area Analysis")
 
-    area_df = df.groupby("AREA").size().reset_index(name="COUNT")
-    fig_bar = px.bar(area_df, x="AREA", y="COUNT")
+    if not df.empty:
+        area_df = df.groupby("AREA").size().reset_index(name="COUNT")
+        fig_bar = px.bar(area_df, x="AREA", y="COUNT")
 
-    selected = plotly_events(fig_bar, click_event=True)
-    st.plotly_chart(fig_bar, use_container_width=True)
+        selected = plotly_events(fig_bar, click_event=True)
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-    if selected:
-        st.dataframe(df[df["AREA"] == selected[0]["x"]])
-
-    # ========================= 🤖 GPT =========================
-    st.subheader("🤖 AI Insights")
-
-    company = st.selectbox("Company", df["COMPANY"].unique())
-
-    if st.button("Generate Insight"):
-        data = df[df["COMPANY"] == company].to_string()
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": f"Analyze:\n{data}"}]
-        )
-
-        st.success(response.choices[0].message.content)
+        if selected:
+            st.dataframe(df[df["AREA"] == selected[0]["x"]])
 
     # ========================= TABLE =========================
     st.subheader("📋 Data")
