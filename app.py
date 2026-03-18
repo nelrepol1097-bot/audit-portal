@@ -2036,7 +2036,7 @@ def dashboard_analytics():
             st.plotly_chart(fig2, use_container_width=True)
 
         # SLA status chart
-        if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
+    if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
             sla_counts = df_overview_work["SLA_STATUS"].value_counts().reset_index()
             sla_counts.columns = ["SLA_STATUS", "COUNT"]
 
