@@ -1966,30 +1966,29 @@ def board_resolutions():
         if st.button("🔄 Refresh", key="board_refresh"):
             st.session_state.board_orig = load_board()
             safe_rerun()
-# =========================================================
-# 📡 EMAIL ALERT
-# =========================================================
-    def send_alert(message):
-        try:
-            sender = "your_email@gmail.com"
-            password = "your_app_password"
-            receiver = "receiver@email.com"
+# ========================= EMAIL ALERT FUNCTION =========================
+def send_alert(message):
+    try:
+        sender = "your_email@gmail.com"
+        password = "your_app_password"
+        receiver = "receiver@email.com"
 
-            msg = MIMEText(message)
-            msg["Subject"] = "⚠️ Compliance Alert"
-            msg["From"] = sender
-            msg["To"] = receiver
+        msg = MIMEText(message)
+        msg["Subject"] = "⚠️ Compliance Alert"
+        msg["From"] = sender
+        msg["To"] = receiver
 
-            server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-            server.login(sender, password)
-            server.sendmail(sender, receiver, msg.as_string())
-            server.quit()
-        except:
-            pass
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.login(sender, password)
+        server.sendmail(sender, receiver, msg.as_string())
+        server.quit()
+    except:
+        pass
 
-    # =========================================================
-    # 🚀 ULTRA FUTURISTIC UI
-    # =========================================================
+
+# ========================= MAIN DASHBOARD =========================
+def dashboard_analytics():
+
     st.markdown("""
     <style>
     body {background: linear-gradient(135deg,#0f172a,#020617);}
@@ -2022,9 +2021,7 @@ def board_resolutions():
 
     st.title("📊 Compliance Executive Dashboard")
 
-    # =========================================================
-    # DATA LOAD
-    # =========================================================
+    # ========================= LOAD DATA =========================
     @st.cache_data(ttl=60)
     def load_data():
         conn, cursor = get_cursor()
@@ -2039,11 +2036,11 @@ def board_resolutions():
     df = load_data()
     today = datetime.today().date()
 
-    # =========================================================
-    # SLA + RISK
-    # =========================================================
+    # ========================= SLA + RISK =========================
     if df.empty:
-        df = pd.DataFrame(columns=["COMPANY","AREA","BRANCH","SLA","RISK"])
+        df = pd.DataFrame(columns=[
+            "COMPANY","AREA","BRANCH","FINAL_DEADLINE","SLA","RISK"
+        ])
     else:
         df["DEADLINE"] = pd.to_datetime(df["DEADLINE"], errors='coerce').dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df["DEADLINE_EXTENSION"], errors='coerce').dt.date
@@ -2059,33 +2056,28 @@ def board_resolutions():
             (df["GROSS_SALES_CERT"].isna()) * 30
         )
 
-    # =========================================================
-    # KPI
-    # =========================================================
+    # ========================= KPI =========================
     total = len(df)
-    late = len(df[df["SLA"]=="LATE"])
-    high_risk = len(df[df["RISK"]>=70])
-    rate = ((total-late)/total*100) if total else 0
+    late = len(df[df["SLA"] == "LATE"])
+    high_risk = len(df[df["RISK"] >= 70])
+    rate = ((total - late) / total * 100) if total else 0
 
     if high_risk > 5:
         send_alert(f"⚠️ High Risk Alert: {high_risk}")
 
-    c1,c2,c3,c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
+
     c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
-    # =========================================================
-    # 🎯 SCORECARD
-    # =========================================================
+    # ========================= SCORECARD =========================
     st.subheader("🎯 KPI Scorecard")
-    st.metric("Completion", f"{rate:.1f}%", f"{rate-90:.1f}%")
-    st.metric("Late", late, late-5)
+    st.metric("Completion", f"{rate:.1f}%", f"{rate - 90:.1f}%")
+    st.metric("Late", late, late - 5)
 
-    # =========================================================
-    # 🔮 AI PREDICTION
-    # =========================================================
+    # ========================= AI PREDICTION =========================
     st.subheader("🔮 AI Prediction")
     df["PREDICTED_LATE"] = (df["RISK"] >= 50)
     pred = df[df["PREDICTED_LATE"]]
@@ -2094,44 +2086,39 @@ def board_resolutions():
     if not pred.empty:
         st.dataframe(pred)
 
-    # =========================================================
-    # 📈 NORMAL LINE
-    # =========================================================
+    # ========================= LINE TREND =========================
     st.subheader("📈 SLA Trend")
-    trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-    st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
+    if not df.empty:
+        trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
+        st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
 
-    # =========================================================
-    # 🌌 FUTURISTIC GRAPH
-    # =========================================================
+    # ========================= FUTURISTIC GRAPH =========================
     st.subheader("🌌 AI Risk Intelligence")
 
-    futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
+    if not df.empty:
+        futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=futuristic_df["FINAL_DEADLINE"],
-        y=futuristic_df["RISK"],
-        mode='lines+markers',
-        line=dict(width=5),
-        marker=dict(size=10)
-    ))
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=futuristic_df["FINAL_DEADLINE"],
+            y=futuristic_df["RISK"],
+            mode='lines+markers',
+            line=dict(width=5),
+            marker=dict(size=10)
+        ))
 
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#00f7ff"),
-        title="⚡ Risk Intelligence"
-    )
+        fig.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#00f7ff"),
+            title="⚡ Risk Intelligence"
+        )
 
-    st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # =========================================================
-    # 🧠 ADVANCED ANALYTICS
-    # =========================================================
-    st.subheader("🧠 Advanced Insights")
+        # ========================= ADVANCED ANALYTICS =========================
+        st.subheader("🧠 Advanced Insights")
 
-    if not futuristic_df.empty:
         latest = futuristic_df["RISK"].iloc[-1]
         avg = futuristic_df["RISK"].mean()
 
@@ -2140,17 +2127,15 @@ def board_resolutions():
         else:
             st.success("🟢 Risk stable")
 
-        st.write(f"Peak Risk: {futuristic_df['RISK'].max():.2f}")
+        st.write(f"📌 Peak Risk: {futuristic_df['RISK'].max():.2f}")
 
-    # =========================================================
-    # 🌊 WATERFALL
-    # =========================================================
+    # ========================= WATERFALL =========================
     st.subheader("🌊 Risk Breakdown")
 
     fig2 = go.Figure(go.Waterfall(
         x=["Late","Pending","Missing","Total"],
         y=[
-            len(df[df["SLA"]=="LATE"]),
+            late,
             len(df[df["SEC_CERT"]=="PENDING"]),
             len(df[df["GROSS_SALES_CERT"].isna()]),
             total
@@ -2159,42 +2144,42 @@ def board_resolutions():
 
     st.plotly_chart(fig2, use_container_width=True)
 
-    # =========================================================
-    # 🌍 AREA
-    # =========================================================
+    # ========================= AREA =========================
     st.subheader("🌍 Area Analysis")
 
-    area_df = df.groupby("AREA").size().reset_index(name="COUNT")
-    fig_bar = px.bar(area_df, x="AREA", y="COUNT")
+    if not df.empty:
+        area_df = df.groupby("AREA").size().reset_index(name="COUNT")
+        fig_bar = px.bar(area_df, x="AREA", y="COUNT")
 
-    selected = plotly_events(fig_bar, click_event=True)
-    st.plotly_chart(fig_bar, use_container_width=True)
+        selected = plotly_events(fig_bar, click_event=True)
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-    if selected:
-        st.dataframe(df[df["AREA"]==selected[0]["x"]])
+        if selected:
+            st.dataframe(df[df["AREA"] == selected[0]["x"]])
 
-    # =========================================================
-    # 🤖 GPT
-    # =========================================================
+    # ========================= GPT =========================
     st.subheader("🤖 AI Insights")
 
-    company = st.selectbox("Company", df["COMPANY"].unique())
+    if not df.empty:
+        company = st.selectbox("Company", df["COMPANY"].unique())
 
-    if st.button("Generate Insight"):
-        data = df[df["COMPANY"]==company].to_string()
+        if st.button("Generate Insight"):
+            try:
+                data = df[df["COMPANY"] == company].to_string()
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"user","content":f"Analyze:\n{data}"}]
-        )
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": f"Analyze:\n{data}"}]
+                )
 
-        st.success(response.choices[0].message.content)
+                st.success(response.choices[0].message.content)
 
-    # =========================================================
-    # TABLE
-    # =========================================================
+            except Exception as e:
+                st.error(e)
+
+    # ========================= TABLE =========================
     st.subheader("📋 Data")
-    st.dataframe(df)
+    st.dataframe(df, use_container_width=True)
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
 # ---------------------------------------------------
