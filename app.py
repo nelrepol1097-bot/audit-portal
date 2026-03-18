@@ -195,7 +195,11 @@ def handle_save_with_id(
     current_ids = set(df_work[id_col].dropna().astype(int))
 
     # New rows (no ID yet)
-    new_rows = df_work[df_work[id_col].isna()]
+    # NEW LOGIC 🔥
+new_rows = df_work[
+    df_work[id_col].isna() | 
+    (~df_work[id_col].isin(orig_ids))
+]
 
     # Existing rows (for update / delete detection)
     existing_rows = df_work[df_work[id_col].notna()]
@@ -219,7 +223,11 @@ def handle_save_with_id(
 
     # UPDATE existing rows (with audit)
     for _, row in existing_rows.iterrows():
-        rid = int(row[id_col])
+    rid = int(row[id_col])
+
+    # 🔥 ONLY UPDATE IF EXISTS
+    if rid not in orig_ids:
+        continue
         if rid in orig_indexed.index:
             old_row = orig_indexed.loc[rid]
             # column-level audit
