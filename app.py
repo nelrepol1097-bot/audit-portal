@@ -1848,31 +1848,31 @@ def dashboard_analytics():
             cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"]
         )
 
-    @st.cache_data(ttl=60, show_spinner=False)
-     def load_fire_safety_status():
-     conn, cursor = get_cursor()
-     cursor.execute(
-        """
-        SELECT AREA, BRANCH, FSIC_VALIDITY
-        FROM FIRE_SAFETY
-        """
-    )
-    df = pd.DataFrame(cursor.fetchall(), columns=["AREA", "BRANCH", "FSIC_VALIDITY"])
+        @st.cache_data(ttl=60, show_spinner=False)
+    def load_fire_safety_status():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT AREA, BRANCH, FSIC_VALIDITY
+            FROM FIRE_SAFETY
+            """
+        )
+        df = pd.DataFrame(cursor.fetchall(), columns=["AREA", "BRANCH", "FSIC_VALIDITY"])
 
-    if not df.empty:
-        df["FSIC_VALIDITY"] = pd.to_datetime(df["FSIC_VALIDITY"]).dt.date
-        today = datetime.today().date()
+        if not df.empty:
+            df["FSIC_VALIDITY"] = pd.to_datetime(df["FSIC_VALIDITY"]).dt.date
+            today = datetime.today().date()
 
-        def fsic_status(d):
-            if pd.isna(d):
-                return "NO_FSIC"
-            if d < today:
-                return "EXPIRED"
-            return "VALID"
+            def fsic_status(d):
+                if pd.isna(d):
+                    return "NO_FSIC"
+                if d < today:
+                    return "EXPIRED"
+                return "VALID"
 
-        df["FSIC_STATUS"] = df["FSIC_VALIDITY"].apply(fsic_status)
+            df["FSIC_STATUS"] = df["FSIC_VALIDITY"].apply(fsic_status)
 
-    return df
+        return df
 
     @st.cache_data(ttl=60, show_spinner=False)
     def load_tax_mapped_simple():
