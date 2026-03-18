@@ -2038,11 +2038,24 @@ def dashboard_analytics():
 
         # SLA status chart
                 # SLA status chart
+                # SLA status chart
         if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
-            sla_counts = (
-                df_overview_work["SLA_STATUS"].value_counts().reset_index()
+            sla_counts = df_overview_work["SLA_STATUS"].value_counts().reset_index()
+            sla_counts.columns = ["SLA_STATUS", "COUNT"]
+
+            fig3 = px.bar(
+                sla_counts,
+                x="SLA_STATUS",
+                y="COUNT",
+                title="SLA Status Distribution",
+                color="SLA_STATUS",
+                color_discrete_map={
+                    "ON_TIME": "#2ecc71",
+                    "LATE": "#e74c3c",
+                    "NO_DEADLINE": "#95a5a6",
+                },
             )
-            ...
+            st.plotly_chart(fig3, use_container_width=True)
             sla_counts.columns = ["SLA_STATUS", "COUNT"]
             fig3 = px.bar(
                 sla_counts,
