@@ -2016,7 +2016,6 @@ def dashboard_analytics():
 
         # Area distribution + average risk
         if not df_area.empty:
-            # average risk by area
             if not df_overview_work.empty:
                 risk_by_area = (
                     df_overview_work.groupby("AREA")["RISK_SCORE"].mean().reset_index()
@@ -2037,26 +2036,10 @@ def dashboard_analytics():
             st.plotly_chart(fig2, use_container_width=True)
 
         # SLA status chart
-                # SLA status chart
-                # SLA status chart
         if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
             sla_counts = df_overview_work["SLA_STATUS"].value_counts().reset_index()
             sla_counts.columns = ["SLA_STATUS", "COUNT"]
 
-            fig3 = px.bar(
-                sla_counts,
-                x="SLA_STATUS",
-                y="COUNT",
-                title="SLA Status Distribution",
-                color="SLA_STATUS",
-                color_discrete_map={
-                    "ON_TIME": "#2ecc71",
-                    "LATE": "#e74c3c",
-                    "NO_DEADLINE": "#95a5a6",
-                },
-            )
-            st.plotly_chart(fig3, use_container_width=True)
-            sla_counts.columns = ["SLA_STATUS", "COUNT"]
             fig3 = px.bar(
                 sla_counts,
                 x="SLA_STATUS",
