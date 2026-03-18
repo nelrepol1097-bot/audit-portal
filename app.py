@@ -1848,7 +1848,7 @@ def dashboard_analytics():
             cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"]
         )
 
-        @st.cache_data(ttl=60, show_spinner=False)
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_fire_safety_status():
         conn, cursor = get_cursor()
         cursor.execute(
