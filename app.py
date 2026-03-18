@@ -1774,82 +1774,361 @@ def secretary_certificates():
 # DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
 def dashboard_analytics():
-    st.title("📊 Compliance Dashboard")
+    st.title("📊 Compliance Executive Dashboard")
 
-    powerbi_url = "https://app.powerbi.com/view?r=eyJrIjoiNmZhOGI5NjAtN2FjMC00NGUyLWFjOGUtMmFhYjg4NGY0ZThkIiwidCI6ImRmODY3OWNkLWE4MGUtNDVkOC05OWFjLWM4M2VkN2ZmOTVhMCJ9"
-
-    st.components.v1.iframe(
-        powerbi_url,
-        height=900,
-        width=1600,
-        scrolling=True,
-    )
-
-    st.divider()
-
-    @st.cache_data(ttl=30, show_spinner=False)
+    # =========================
+    # DATA LOADERS (CACHED)
+    # =========================
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_business_status():
         conn, cursor = get_cursor()
         cursor.execute(
             """
-            SELECT STATUS, COUNT(*)
+            SELECT STATUS, COUNT(*) AS CNT
             FROM BUSINESS_PERMIT
             GROUP BY STATUS
         """
         )
         return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
 
-    @st.cache_data(ttl=30, show_spinner=False)
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_area_distribution():
         conn, cursor = get_cursor()
         cursor.execute(
             """
-            SELECT AREA, COUNT(*)
+            SELECT AREA, COUNT(*) AS CNT
             FROM BRANCH_TIN_ADDRESS
             GROUP BY AREA
         """
         )
         return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
 
-    @st.cache_data(ttl=30, show_spinner=False)
-    def load_pending():
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_overview_sla():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT
+                COMPANY,
+                AREA,
+                BRANCH,
+                DEADLINE,
+                DEADLINE_EXTENSION,
+                BUSINESS_PERMIT_2025,
+                BRGY_PERMIT_2025,
+                SEC_CERT,
+                GROSS_SALES_CERT
+            FROM BUSINESS_PERMIT_OVERVIEW
+        """
+        )
+        cols = [
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "DEADLINE",
+            "DEADLINE_EXTENSION",
+            "BUSINESS_PERMIT_2025",
+            "BRGY_PERMIT_2025",
+            "SEC_CERT",
+            "GROSS_SALES_CERT",
+        ]
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_pending_permits():
         conn, cursor = get_cursor()
         cursor.execute(
             """
             SELECT COMPANY, AREA, BRANCH, STATUS
             FROM BUSINESS_PERMIT
-            WHERE STATUS!='DONE'
+            WHERE STATUS != 'DONE'
         """
         )
         return pd.DataFrame(
             cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"]
         )
 
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_fire_safety_status():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT AREA, BRANCH, FSIC_VALIDITY, STATUS := 
+                CASE 
+                    WHEN FSIC_VALIDITY IS NULL THEN 'NO_FSIC'
+                    WHEN FSIC_VALIDITY < CURRENT_DATE THEN 'EXPIRED'
+                    ELSE 'VALID'
+                END AS FSIC_STATUS
+            FROM FIRE_SAFETY
+        """
+        )
+        return pd.DataFrame(
+            cursor.fetchall(), columns=["AREA", "BRANCH", "FSIC_VALIDITY", "FSIC_STATUS"]
+        )
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_tax_mapped_simple():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT AREA, BRANCH, DATE_TAX_MAPPED, BIR_REMARKS
+            FROM TAX_MAPPED
+        """
+        )
+        return pd.DataFrame(
+            cursor.fetchall(), columns=["AREA", "BRANCH", "DATE_TAX_MAPPED", "BIR_REMARKS"]
+        )
+
+    # =========================
+    # CORE DATA + DERIVED FIELDS
+    # =========================
     df_status = load_business_status()
-    fig1 = px.pie(
-        df_status,
-        values="COUNT",
-        names="STATUS",
-        title="Business Permit Status",
-    )
-    st.plotly_chart(fig1, use_container_width=True)
-
-    st.divider()
-
     df_area = load_area_distribution()
-    fig2 = px.bar(
-        df_area,
-        x="AREA",
-        y="COUNT",
-        title="Branches by Area",
+    df_overview = load_overview_sla()
+    df_pending = load_pending_permits()
+    df_fire = load_fire_safety_status()
+    df_tax = load_tax_mapped_simple()
+
+    today = datetime.today().date()
+
+    # SLA status per branch (on‑time / late)
+    if not df_overview.empty:
+        df_overview_work = df_overview.copy()
+        for c in ["DEADLINE", "DEADLINE_EXTENSION"]:
+            df_overview_work[c] = pd.to_datetime(df_overview_work[c]).dt.date
+
+        df_overview_work["EFFECTIVE_DEADLINE"] = df_overview_work["DEADLINE_EXTENSION"].fillna(
+            df_overview_work["DEADLINE"]
+        )
+
+        df_overview_work["SLA_STATUS"] = df_overview_work["EFFECTIVE_DEADLINE"].apply(
+            lambda d: "NO_DEADLINE"
+            if pd.isna(d)
+            else ("LATE" if d < today else "ON_TIME")
+        )
+    else:
+        df_overview_work = df_overview
+
+    # Risk scoring (simple rule‑based: 0–100)
+    def compute_risk(row):
+        score = 0
+        # base: pending business permits
+        if not df_pending.empty:
+            has_pending = (
+                (df_pending["COMPANY"] == row["COMPANY"])
+                & (df_pending["AREA"] == row["AREA"])
+                & (df_pending["BRANCH"] == row["BRANCH"])
+            ).any()
+            if has_pending:
+                score += 40
+
+        # SLA late
+        if row.get("SLA_STATUS") == "LATE":
+            score += 40
+
+        # SEC cert pending / processing
+        if row.get("SEC_CERT") in ["PENDING", "PROCESSING"]:
+            score += 10
+
+        # missing gross sales cert
+        if pd.isna(row.get("GROSS_SALES_CERT")):
+            score += 10
+
+        return min(score, 100)
+
+    if not df_overview_work.empty:
+        df_overview_work["RISK_SCORE"] = df_overview_work.apply(compute_risk, axis=1)
+
+        def risk_bucket(score):
+            if score >= 70:
+                return "RED"
+            if score >= 40:
+                return "YELLOW"
+            return "GREEN"
+
+        df_overview_work["RISK_BUCKET"] = df_overview_work["RISK_SCORE"].apply(risk_bucket)
+    else:
+        df_overview_work["RISK_SCORE"] = []
+        df_overview_work["RISK_BUCKET"] = []
+
+    # =========================
+    # KPI ROW
+    # =========================
+    total_branches = int(df_area["COUNT"].sum()) if not df_area.empty else 0
+    done_permits = int(
+        df_status.loc[df_status["STATUS"] == "DONE", "COUNT"].sum()
+    ) if not df_status.empty else 0
+    total_permits = int(df_status["COUNT"].sum()) if not df_status.empty else 0
+    completion_rate = (done_permits / total_permits * 100) if total_permits else 0
+
+    late_branches = int(
+        df_overview_work.loc[df_overview_work["SLA_STATUS"] == "LATE"].shape[0]
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    high_risk = int(
+        df_overview_work.loc[df_overview_work["RISK_BUCKET"] == "RED"].shape[0]
+    )
+
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+    col_kpi1.metric("Total Branches", f"{total_branches}")
+    col_kpi2.metric("Permit Completion", f"{completion_rate:.1f} %")
+    col_kpi3.metric("Late vs SLA", f"{late_branches}")
+    col_kpi4.metric("High‑Risk Branches (RED)", f"{high_risk}")
 
     st.divider()
 
-    st.subheader("Pending Business Permits")
-    df_pending = load_pending()
-    st.dataframe(df_pending, use_container_width=True)
+    # =========================
+    # LAYOUT: LEFT (charts) / RIGHT (table + drill‑down)
+    # =========================
+    left_col, right_col = st.columns([2, 1.6])
+
+    # ----- LEFT: charts -----
+    with left_col:
+        st.subheader("Portfolio View")
+
+        # Business permit status
+        if not df_status.empty:
+            fig1 = px.pie(
+                df_status,
+                values="COUNT",
+                names="STATUS",
+                title="Business Permit Status",
+                hole=0.4,
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+
+        # Area distribution + average risk
+        if not df_area.empty:
+            # average risk by area
+            if not df_overview_work.empty:
+                risk_by_area = (
+                    df_overview_work.groupby("AREA")["RISK_SCORE"].mean().reset_index()
+                )
+                df_area_risk = df_area.merge(risk_by_area, on="AREA", how="left")
+            else:
+                df_area_risk = df_area.copy()
+                df_area_risk["RISK_SCORE"] = 0
+
+            fig2 = px.bar(
+                df_area_risk,
+                x="AREA",
+                y="COUNT",
+                color="RISK_SCORE",
+                color_continuous_scale=["#2ecc71", "#f1c40f", "#e74c3c"],
+                title="Branches by Area (color = avg risk)",
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+        # SLA status chart
+        if not df_overview_work.empty:
+            sla_counts = (
+                df_overview_work["SLA_STATUS"].value_counts().reset_index()
+            )
+            sla_counts.columns = ["SLA_STATUS", "COUNT"]
+            fig3 = px.bar(
+                sla_counts,
+                x="SLA_STATUS",
+                y="COUNT",
+                title="SLA Status Distribution",
+                color="SLA_STATUS",
+                color_discrete_map={
+                    "ON_TIME": "#2ecc71",
+                    "LATE": "#e74c3c",
+                    "NO_DEADLINE": "#95a5a6",
+                },
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+
+    # ----- RIGHT: drill‑down table -----
+    with right_col:
+        st.subheader("Drill‑Down: Branch Details")
+
+        # pick by area then branch (acts like click‑through)
+        areas = sorted(df_overview_work["AREA"].dropna().unique()) if not df_overview_work.empty else []
+        selected_area = st.selectbox("Select Area", ["All"] + list(areas))
+
+        if selected_area == "All":
+            df_branch_view = df_overview_work.copy()
+        else:
+            df_branch_view = df_overview_work[df_overview_work["AREA"] == selected_area]
+
+        # join pending + risk bucket for richer view
+        if not df_branch_view.empty and not df_pending.empty:
+            df_branch_view = df_branch_view.merge(
+                df_pending[["COMPANY", "AREA", "BRANCH", "STATUS"]]
+                .rename(columns={"STATUS": "PERMIT_STATUS"}),
+                on=["COMPANY", "AREA", "BRANCH"],
+                how="left",
+            )
+
+        cols_show = [
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "EFFECTIVE_DEADLINE",
+            "SLA_STATUS",
+            "PERMIT_STATUS",
+            "SEC_CERT",
+            "RISK_SCORE",
+            "RISK_BUCKET",
+        ]
+        cols_show = [c for c in cols_show if c in df_branch_view.columns]
+
+        st.dataframe(
+            df_branch_view[cols_show].sort_values("RISK_SCORE", ascending=False),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    # =========================
+    # AI INSIGHTS / RISK NARRATIVE
+    # =========================
+    st.subheader("🤖 AI Risk & Compliance Insights")
+
+    if st.button("Generate AI Summary"):
+        # compact numeric context
+        ctx = {
+            "total_branches": total_branches,
+            "completion_rate": round(completion_rate, 1),
+            "late_branches": late_branches,
+            "high_risk": high_risk,
+        }
+
+        # small top‑N risk table as text
+        top_risk = (
+            df_overview_work.sort_values("RISK_SCORE", ascending=False)
+            .head(10)[["COMPANY", "AREA", "BRANCH", "RISK_SCORE", "RISK_BUCKET"]]
+            .to_dict(orient="records")
+            if not df_overview_work.empty
+            else []
+        )
+
+        prompt = f"""
+        You are a senior compliance risk officer.
+
+        Here is the current compliance snapshot (aggregated):
+        {ctx}
+
+        Top 10 highest-risk branches (if any), with scores 0-100:
+        {top_risk}
+
+        Tasks:
+        1. Give a concise executive-level summary (2-3 bullets).
+        2. Call out the top areas / patterns of concern.
+        3. Suggest 3-5 concrete next actions in priority order.
+        Be direct and business-oriented. Do not repeat raw numbers verbatim.
+        """
+
+        with st.spinner("Analyzing portfolio..."):
+            try:
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                ai_text = resp.choices[0].message.content
+                st.markdown(ai_text)
+            except Exception as e:
+                st.error(f"AI analysis failed: {e}")
 
 
 # ---------------------------------------------------
