@@ -2186,7 +2186,6 @@ def dashboard():
             "Board Resolutions",
             "BOA Stickers",
             "Fire Safety",
-            "Board Resolutions",
             "TIN & Address",
             "Tax Mapped",
             "AI Compliance Copilot",
