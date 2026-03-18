@@ -1948,211 +1948,728 @@ def board_resolutions():
 def dashboard_analytics():
     st.title("📊 Compliance Executive Dashboard")
 
-    # =========================
-    # DATA LOADERS
-    # =========================
-    @st.cache_data(ttl=60)
+    # =========================================================
+    # CUSTOM CSS FOR KPI CARDS
+    # =========================================================
+    st.markdown(
+        """
+        <style>
+        .kpi-card {
+            background: linear-gradient(135deg, #1e3a5f, #2c5364);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            margin-bottom: 10px;
+        }
+        .kpi-card h2 {
+            margin: 0;
+            font-size: 36px;
+            color: #00d4ff;
+        }
+        .kpi-card p {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            color: #a0b4c8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .kpi-green h2 { color: #2ecc71; }
+        .kpi-yellow h2 { color: #f1c40f; }
+        .kpi-red h2 { color: #e74c3c; }
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .badge-red { background: #e74c3c; color: white; }
+        .badge-yellow { background: #f1c40f; color: #333; }
+        .badge-green { background: #2ecc71; color: white; }
+        .section-header {
+            background: rgba(255,255,255,0.05);
+            padding: 12px 20px;
+            border-radius: 10px;
+            border-left: 4px solid #00d4ff;
+            margin: 20px 0 10px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # =========================================================
+    # DATA LOADERS (ALL CACHED)
+    # =========================================================
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_business_status():
         conn, cursor = get_cursor()
-        cursor.execute("""
-            SELECT STATUS, COUNT(*) 
-            FROM BUSINESS_PERMIT
-            GROUP BY STATUS
-        """)
+        cursor.execute(
+            "SELECT STATUS, COUNT(*) FROM BUSINESS_PERMIT GROUP BY STATUS"
+        )
         return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
 
-    @st.cache_data(ttl=60)
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_area_distribution():
         conn, cursor = get_cursor()
-        cursor.execute("""
-            SELECT AREA, COUNT(*) 
-            FROM BRANCH_TIN_ADDRESS
-            GROUP BY AREA
-        """)
+        cursor.execute(
+            "SELECT AREA, COUNT(*) FROM BRANCH_TIN_ADDRESS GROUP BY AREA"
+        )
         return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
 
-    @st.cache_data(ttl=60)
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_overview_sla():
         conn, cursor = get_cursor()
-        cursor.execute("""
-            SELECT COMPANY, AREA, BRANCH,
-                   DEADLINE, DEADLINE_EXTENSION,
-                   BUSINESS_PERMIT_2025,
-                   BRGY_PERMIT_2025,
-                   SEC_CERT,
-                   GROSS_SALES_CERT
+        cursor.execute(
+            """
+            SELECT COMPANY, AREA, BRANCH, DEADLINE, DEADLINE_EXTENSION,
+                   BUSINESS_PERMIT_2025, BRGY_PERMIT_2025,
+                   SEC_CERT, GROSS_SALES_CERT
             FROM BUSINESS_PERMIT_OVERVIEW
-        """)
+            """
+        )
         cols = [
-            "COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION",
-            "BUSINESS_PERMIT_2025","BRGY_PERMIT_2025",
-            "SEC_CERT","GROSS_SALES_CERT"
+            "COMPANY", "AREA", "BRANCH", "DEADLINE", "DEADLINE_EXTENSION",
+            "BUSINESS_PERMIT_2025", "BRGY_PERMIT_2025",
+            "SEC_CERT", "GROSS_SALES_CERT",
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    @st.cache_data(ttl=60)
+    @st.cache_data(ttl=60, show_spinner=False)
     def load_pending():
         conn, cursor = get_cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT COMPANY, AREA, BRANCH, STATUS
             FROM BUSINESS_PERMIT
             WHERE STATUS != 'DONE'
-        """)
-        return pd.DataFrame(cursor.fetchall(), columns=["COMPANY","AREA","BRANCH","STATUS"])
+            """
+        )
+        return pd.DataFrame(
+            cursor.fetchall(), columns=["COMPANY", "AREA", "BRANCH", "STATUS"]
+        )
 
-    # =========================
-    # LOAD DATA
-    # =========================
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_fire_safety():
+        conn, cursor = get_cursor()
+        cursor.execute("SELECT AREA, BRANCH, FSIC_VALIDITY FROM FIRE_SAFETY")
+        df = pd.DataFrame(
+            cursor.fetchall(), columns=["AREA", "BRANCH", "FSIC_VALIDITY"]
+        )
+        if not df.empty:
+            df["FSIC_VALIDITY"] = pd.to_datetime(df["FSIC_VALIDITY"]).dt.date
+            t = datetime.today().date()
+            df["FSIC_STATUS"] = df["FSIC_VALIDITY"].apply(
+                lambda d: "NO_FSIC" if pd.isna(d) else ("EXPIRED" if d < t else "VALID")
+            )
+        return df
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_atp_status():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            "SELECT STATUS, COUNT(*) FROM ATP_CERTIFICATES GROUP BY STATUS"
+        )
+        return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_sec_cert_status():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            "SELECT FINAL_STATUS, COUNT(*) FROM SECRETARY_CERTIFICATES GROUP BY FINAL_STATUS"
+        )
+        return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_tax_mapped():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            "SELECT AREA, BRANCH, DATE_TAX_MAPPED, BIR_REMARKS FROM TAX_MAPPED"
+        )
+        return pd.DataFrame(
+            cursor.fetchall(),
+            columns=["AREA", "BRANCH", "DATE_TAX_MAPPED", "BIR_REMARKS"],
+        )
+
+    # =========================================================
+    # LOAD ALL DATA
+    # =========================================================
     df_status = load_business_status()
     df_area = load_area_distribution()
     df_overview = load_overview_sla()
     df_pending = load_pending()
+    df_fire = load_fire_safety()
+    df_atp = load_atp_status()
+    df_sec = load_sec_cert_status()
+    df_tax = load_tax_mapped()
 
     today = datetime.today().date()
 
-    # =========================
+    # =========================================================
     # SLA LOGIC
-    # =========================
+    # =========================================================
     if not df_overview.empty:
-        df_overview_work = df_overview.copy()
-
+        df_work = df_overview.copy()
         for c in ["DEADLINE", "DEADLINE_EXTENSION"]:
-            df_overview_work[c] = pd.to_datetime(df_overview_work[c]).dt.date
+            df_work[c] = pd.to_datetime(df_work[c]).dt.date
 
-        df_overview_work["EFFECTIVE_DEADLINE"] = df_overview_work["DEADLINE_EXTENSION"].fillna(
-            df_overview_work["DEADLINE"]
+        df_work["EFFECTIVE_DEADLINE"] = df_work["DEADLINE_EXTENSION"].fillna(
+            df_work["DEADLINE"]
         )
-
-        df_overview_work["SLA_STATUS"] = df_overview_work["EFFECTIVE_DEADLINE"].apply(
-            lambda d: "NO_DEADLINE" if pd.isna(d) else ("LATE" if d < today else "ON_TIME")
+        df_work["SLA_STATUS"] = df_work["EFFECTIVE_DEADLINE"].apply(
+            lambda d: "NO_DEADLINE"
+            if pd.isna(d)
+            else ("LATE" if d < today else "ON_TIME")
+        )
+        df_work["DAYS_REMAINING"] = df_work["EFFECTIVE_DEADLINE"].apply(
+            lambda d: (d - today).days if pd.notna(d) else None
         )
     else:
-        df_overview_work = pd.DataFrame()
+        df_work = pd.DataFrame(
+            columns=list(df_overview.columns)
+            + ["EFFECTIVE_DEADLINE", "SLA_STATUS", "DAYS_REMAINING"]
+        )
 
-    # =========================
+    # =========================================================
     # RISK SCORING
-    # =========================
+    # =========================================================
     def compute_risk(row):
         score = 0
-
         if not df_pending.empty:
             has_pending = (
-                (df_pending["COMPANY"] == row["COMPANY"]) &
-                (df_pending["AREA"] == row["AREA"]) &
-                (df_pending["BRANCH"] == row["BRANCH"])
+                (df_pending["COMPANY"] == row["COMPANY"])
+                & (df_pending["AREA"] == row["AREA"])
+                & (df_pending["BRANCH"] == row["BRANCH"])
             ).any()
             if has_pending:
-                score += 40
-
+                score += 35
         if row.get("SLA_STATUS") == "LATE":
-            score += 40
-
+            score += 35
         if row.get("SEC_CERT") in ["PENDING", "PROCESSING"]:
-            score += 10
-
+            score += 15
         if pd.isna(row.get("GROSS_SALES_CERT")):
-            score += 10
-
+            score += 15
         return min(score, 100)
 
-    if not df_overview_work.empty:
-        df_overview_work["RISK_SCORE"] = df_overview_work.apply(compute_risk, axis=1)
+    if not df_work.empty:
+        df_work["RISK_SCORE"] = df_work.apply(compute_risk, axis=1)
+        df_work["RISK_BUCKET"] = df_work["RISK_SCORE"].apply(
+            lambda x: "RED" if x >= 70 else ("YELLOW" if x >= 40 else "GREEN")
+        )
+    else:
+        df_work["RISK_SCORE"] = []
+        df_work["RISK_BUCKET"] = []
 
-        def risk_bucket(x):
-            if x >= 70: return "RED"
-            if x >= 40: return "YELLOW"
-            return "GREEN"
-
-        df_overview_work["RISK_BUCKET"] = df_overview_work["RISK_SCORE"].apply(risk_bucket)
-
-    # =========================
-    # KPI
-    # =========================
+    # =========================================================
+    # COMPUTE KPI VALUES
+    # =========================================================
     total_branches = int(df_area["COUNT"].sum()) if not df_area.empty else 0
-    done = int(df_status[df_status["STATUS"] == "DONE"]["COUNT"].sum()) if not df_status.empty else 0
-    total = int(df_status["COUNT"].sum()) if not df_status.empty else 0
-    rate = (done / total * 100) if total else 0
+    done = (
+        int(df_status.loc[df_status["STATUS"] == "DONE", "COUNT"].sum())
+        if not df_status.empty
+        else 0
+    )
+    total_permits = int(df_status["COUNT"].sum()) if not df_status.empty else 0
+    rate = (done / total_permits * 100) if total_permits else 0
 
-    if not df_overview_work.empty and "SLA_STATUS" in df_overview_work:
-        late = int(df_overview_work[df_overview_work["SLA_STATUS"] == "LATE"].shape[0])
-    else:
-        late = 0
+    late = 0
+    on_time = 0
+    high_risk = 0
+    med_risk = 0
+    low_risk = 0
 
-    if not df_overview_work.empty and "RISK_BUCKET" in df_overview_work:
-        high_risk = int(df_overview_work[df_overview_work["RISK_BUCKET"] == "RED"].shape[0])
-    else:
-        high_risk = 0
+    if not df_work.empty and "SLA_STATUS" in df_work.columns:
+        late = int(df_work[df_work["SLA_STATUS"] == "LATE"].shape[0])
+        on_time = int(df_work[df_work["SLA_STATUS"] == "ON_TIME"].shape[0])
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Branches", total_branches)
-    c2.metric("Completion %", f"{rate:.1f}%")
-    c3.metric("Late SLA", late)
-    c4.metric("High Risk", high_risk)
+    if not df_work.empty and "RISK_BUCKET" in df_work.columns:
+        high_risk = int(df_work[df_work["RISK_BUCKET"] == "RED"].shape[0])
+        med_risk = int(df_work[df_work["RISK_BUCKET"] == "YELLOW"].shape[0])
+        low_risk = int(df_work[df_work["RISK_BUCKET"] == "GREEN"].shape[0])
+
+    fire_expired = 0
+    fire_valid = 0
+    if not df_fire.empty and "FSIC_STATUS" in df_fire.columns:
+        fire_expired = int(df_fire[df_fire["FSIC_STATUS"] == "EXPIRED"].shape[0])
+        fire_valid = int(df_fire[df_fire["FSIC_STATUS"] == "VALID"].shape[0])
+
+    # =========================================================
+    # KPI CARDS (INFOGRAPHIC STYLE)
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">Key Performance Indicators</div>',
+        unsafe_allow_html=True,
+    )
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+
+    with k1:
+        st.markdown(
+            f"""<div class="kpi-card">
+                <h2>{total_branches}</h2>
+                <p>Total Branches</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with k2:
+        css = "kpi-green" if rate >= 80 else ("kpi-yellow" if rate >= 50 else "kpi-red")
+        st.markdown(
+            f"""<div class="kpi-card {css}">
+                <h2>{rate:.1f}%</h2>
+                <p>Permit Completion</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with k3:
+        css = "kpi-red" if late > 0 else "kpi-green"
+        st.markdown(
+            f"""<div class="kpi-card {css}">
+                <h2>{late}</h2>
+                <p>Late SLA</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with k4:
+        st.markdown(
+            f"""<div class="kpi-card kpi-green">
+                <h2>{on_time}</h2>
+                <p>On‑Time SLA</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with k5:
+        css = "kpi-red" if high_risk > 0 else "kpi-green"
+        st.markdown(
+            f"""<div class="kpi-card {css}">
+                <h2>{high_risk}</h2>
+                <p>High Risk</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with k6:
+        css = "kpi-red" if fire_expired > 0 else "kpi-green"
+        st.markdown(
+            f"""<div class="kpi-card {css}">
+                <h2>{fire_expired}</h2>
+                <p>FSIC Expired</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
     st.divider()
 
-    # =========================
-    # CHARTS + TABLE
-    # =========================
-    left, right = st.columns([2, 1.5])
+    # =========================================================
+    # RISK DISTRIBUTION (GAUGE + TREEMAP)
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">Risk & Compliance Overview</div>',
+        unsafe_allow_html=True,
+    )
 
-    with left:
+    r1, r2, r3 = st.columns(3)
+
+    with r1:
+        import plotly.graph_objects as go
+
+        avg_risk = df_work["RISK_SCORE"].mean() if not df_work.empty else 0
+        fig_gauge = go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=avg_risk,
+                title={"text": "Avg Risk Score"},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#00d4ff"},
+                    "steps": [
+                        {"range": [0, 40], "color": "#2ecc71"},
+                        {"range": [40, 70], "color": "#f1c40f"},
+                        {"range": [70, 100], "color": "#e74c3c"},
+                    ],
+                },
+            )
+        )
+        fig_gauge.update_layout(
+            height=280,
+            margin=dict(t=40, b=0, l=30, r=30),
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+    with r2:
+        risk_dist = pd.DataFrame(
+            {
+                "RISK": ["GREEN", "YELLOW", "RED"],
+                "COUNT": [low_risk, med_risk, high_risk],
+            }
+        )
+        fig_risk = px.bar(
+            risk_dist,
+            x="RISK",
+            y="COUNT",
+            color="RISK",
+            color_discrete_map={
+                "GREEN": "#2ecc71",
+                "YELLOW": "#f1c40f",
+                "RED": "#e74c3c",
+            },
+            title="Risk Distribution",
+        )
+        fig_risk.update_layout(
+            showlegend=False,
+            height=280,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig_risk, use_container_width=True)
+
+    with r3:
+        if not df_work.empty:
+            fig_tree = px.treemap(
+                df_work,
+                path=["AREA", "BRANCH"],
+                values="RISK_SCORE",
+                color="RISK_SCORE",
+                color_continuous_scale=["#2ecc71", "#f1c40f", "#e74c3c"],
+                title="Risk by Area / Branch",
+            )
+            fig_tree.update_layout(
+                height=280,
+                margin=dict(t=40, b=0, l=0, r=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig_tree, use_container_width=True)
+        else:
+            st.info("No data for treemap")
+
+    st.divider()
+
+    # =========================================================
+    # CHARTS ROW 1: PERMIT STATUS + AREA + SLA
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">Portfolio Analytics</div>',
+        unsafe_allow_html=True,
+    )
+
+    ch1, ch2, ch3 = st.columns(3)
+
+    with ch1:
         if not df_status.empty:
-            st.plotly_chart(
-                px.pie(df_status, values="COUNT", names="STATUS"),
-                width="stretch"
+            fig1 = px.pie(
+                df_status,
+                values="COUNT",
+                names="STATUS",
+                title="Business Permit Status",
+                hole=0.45,
+                color_discrete_sequence=px.colors.qualitative.Set2,
             )
+            fig1.update_layout(
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig1, use_container_width=True)
 
+    with ch2:
         if not df_area.empty:
-            st.plotly_chart(
-                px.bar(df_area, x="AREA", y="COUNT"),
-                width="stretch"
+            if not df_work.empty and "RISK_SCORE" in df_work.columns:
+                risk_by_area = (
+                    df_work.groupby("AREA")["RISK_SCORE"].mean().reset_index()
+                )
+                df_area_r = df_area.merge(risk_by_area, on="AREA", how="left").fillna(0)
+            else:
+                df_area_r = df_area.copy()
+                df_area_r["RISK_SCORE"] = 0
+
+            fig2 = px.bar(
+                df_area_r,
+                x="AREA",
+                y="COUNT",
+                color="RISK_SCORE",
+                color_continuous_scale=["#2ecc71", "#f1c40f", "#e74c3c"],
+                title="Branches by Area (risk‑colored)",
             )
-
-        if not df_overview_work.empty:
-            sla = df_overview_work["SLA_STATUS"].value_counts().reset_index()
-            sla.columns = ["STATUS", "COUNT"]
-
-            st.plotly_chart(
-                px.bar(sla, x="STATUS", y="COUNT"),
-                width="stretch"
+            fig2.update_layout(
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
             )
+            st.plotly_chart(fig2, use_container_width=True)
 
-    with right:
-        st.subheader("Branch Drilldown")
+    with ch3:
+        if not df_work.empty and "SLA_STATUS" in df_work.columns:
+            sla = df_work["SLA_STATUS"].value_counts().reset_index()
+            sla.columns = ["SLA_STATUS", "COUNT"]
+            fig3 = px.bar(
+                sla,
+                x="SLA_STATUS",
+                y="COUNT",
+                color="SLA_STATUS",
+                color_discrete_map={
+                    "ON_TIME": "#2ecc71",
+                    "LATE": "#e74c3c",
+                    "NO_DEADLINE": "#95a5a6",
+                },
+                title="SLA Tracker",
+            )
+            fig3.update_layout(
+                showlegend=False,
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
-        if not df_overview_work.empty:
-            areas = ["All"] + sorted(df_overview_work["AREA"].dropna().unique())
-            sel = st.selectbox("Area", areas)
+    # =========================================================
+    # CHARTS ROW 2: ATP + SECRETARY CERTS + FIRE SAFETY
+    # =========================================================
+    ch4, ch5, ch6 = st.columns(3)
 
-            df_view = df_overview_work if sel == "All" else df_overview_work[df_overview_work["AREA"] == sel]
+    with ch4:
+        if not df_atp.empty:
+            fig4 = px.pie(
+                df_atp,
+                values="COUNT",
+                names="STATUS",
+                title="ATP Certificate Status",
+                hole=0.45,
+                color_discrete_sequence=px.colors.qualitative.Pastel,
+            )
+            fig4.update_layout(
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig4, use_container_width=True)
 
-            st.dataframe(df_view, width="stretch")
+    with ch5:
+        if not df_sec.empty:
+            fig5 = px.pie(
+                df_sec,
+                values="COUNT",
+                names="STATUS",
+                title="Secretary Certificates",
+                hole=0.45,
+                color_discrete_sequence=px.colors.qualitative.Bold,
+            )
+            fig5.update_layout(
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig5, use_container_width=True)
+
+    with ch6:
+        if not df_fire.empty and "FSIC_STATUS" in df_fire.columns:
+            fire_counts = df_fire["FSIC_STATUS"].value_counts().reset_index()
+            fire_counts.columns = ["STATUS", "COUNT"]
+            fig6 = px.bar(
+                fire_counts,
+                x="STATUS",
+                y="COUNT",
+                color="STATUS",
+                color_discrete_map={
+                    "VALID": "#2ecc71",
+                    "EXPIRED": "#e74c3c",
+                    "NO_FSIC": "#95a5a6",
+                },
+                title="Fire Safety (FSIC)",
+            )
+            fig6.update_layout(
+                showlegend=False,
+                height=320,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+            )
+            st.plotly_chart(fig6, use_container_width=True)
 
     st.divider()
 
-    # =========================
-    # AI INSIGHTS
-    # =========================
-    if st.button("🤖 Generate AI Insights"):
-        prompt = f"""
-        Total branches: {total_branches}
-        Completion rate: {rate:.1f}%
-        Late branches: {late}
-        High risk: {high_risk}
+    # =========================================================
+    # DRILL‑DOWN TABLE WITH FILTERS
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">Branch Drill‑Down</div>',
+        unsafe_allow_html=True,
+    )
 
-        Give executive insights and actions.
-        """
+    if not df_work.empty:
+        f1, f2, f3 = st.columns(3)
 
-        try:
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
+        with f1:
+            areas = ["All"] + sorted(df_work["AREA"].dropna().unique().tolist())
+            sel_area = st.selectbox("Filter by Area", areas, key="dash_area")
+
+        with f2:
+            risks = ["All", "RED", "YELLOW", "GREEN"]
+            sel_risk = st.selectbox("Filter by Risk", risks, key="dash_risk")
+
+        with f3:
+            sla_opts = ["All", "LATE", "ON_TIME", "NO_DEADLINE"]
+            sel_sla = st.selectbox("Filter by SLA", sla_opts, key="dash_sla")
+
+        df_view = df_work.copy()
+
+        if sel_area != "All":
+            df_view = df_view[df_view["AREA"] == sel_area]
+        if sel_risk != "All":
+            df_view = df_view[df_view["RISK_BUCKET"] == sel_risk]
+        if sel_sla != "All":
+            df_view = df_view[df_view["SLA_STATUS"] == sel_sla]
+
+        if not df_pending.empty:
+            df_view = df_view.merge(
+                df_pending[["COMPANY", "AREA", "BRANCH", "STATUS"]].rename(
+                    columns={"STATUS": "PERMIT_STATUS"}
+                ),
+                on=["COMPANY", "AREA", "BRANCH"],
+                how="left",
             )
-            st.write(res.choices[0].message.content)
-        except Exception as e:
-            st.error(e)
 
+        show_cols = [
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "EFFECTIVE_DEADLINE",
+            "DAYS_REMAINING",
+            "SLA_STATUS",
+            "PERMIT_STATUS",
+            "SEC_CERT",
+            "RISK_SCORE",
+            "RISK_BUCKET",
+        ]
+        show_cols = [c for c in show_cols if c in df_view.columns]
+
+        st.dataframe(
+            df_view[show_cols].sort_values("RISK_SCORE", ascending=False),
+            use_container_width=True,
+            height=400,
+        )
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            csv = df_view[show_cols].to_csv(index=False)
+            st.download_button(
+                "📥 Download CSV",
+                csv,
+                "compliance_drilldown.csv",
+                "text/csv",
+            )
+        with dl2:
+            st.metric("Showing", f"{len(df_view)} branches")
+    else:
+        st.info("No overview data available.")
+
+    st.divider()
+
+    # =========================================================
+    # HEATMAP: RISK BY AREA × COMPANY
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">Risk Heatmap</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not df_work.empty:
+        pivot = df_work.pivot_table(
+            values="RISK_SCORE", index="AREA", columns="COMPANY", aggfunc="mean"
+        ).fillna(0)
+
+        import plotly.graph_objects as go
+
+        fig_heat = go.Figure(
+            data=go.Heatmap(
+                z=pivot.values,
+                x=pivot.columns.tolist(),
+                y=pivot.index.tolist(),
+                colorscale=[[0, "#2ecc71"], [0.5, "#f1c40f"], [1, "#e74c3c"]],
+                colorbar=dict(title="Avg Risk"),
+            )
+        )
+        fig_heat.update_layout(
+            title="Average Risk Score: Area vs Company",
+            height=350,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+    st.divider()
+
+    # =========================================================
+    # AI EXECUTIVE INSIGHTS
+    # =========================================================
+    st.markdown(
+        '<div class="section-header">🤖 AI Executive Insights</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Generate AI Summary", key="ai_dash"):
+        ctx = {
+            "total_branches": total_branches,
+            "completion_rate": round(rate, 1),
+            "late_branches": late,
+            "on_time_branches": on_time,
+            "high_risk": high_risk,
+            "medium_risk": med_risk,
+            "low_risk": low_risk,
+            "fire_expired": fire_expired,
+            "fire_valid": fire_valid,
+        }
+
+        top_risk_list = (
+            df_work.sort_values("RISK_SCORE", ascending=False)
+            .head(10)[["COMPANY", "AREA", "BRANCH", "RISK_SCORE", "RISK_BUCKET", "SLA_STATUS"]]
+            .to_dict(orient="records")
+            if not df_work.empty
+            else []
+        )
+
+        prompt = f"""
+You are a senior compliance risk officer presenting to the board of directors.
+
+Current compliance snapshot:
+{ctx}
+
+Top 10 highest-risk branches:
+{top_risk_list}
+
+Provide:
+1. Executive Summary (3 concise bullets with severity indicators)
+2. Top Risk Patterns (which areas/companies show systemic issues)
+3. SLA Analysis (late vs on-time trend interpretation)
+4. Fire Safety Alert (if any expired FSIC certificates)
+5. Priority Action Plan (5 numbered actions, most urgent first)
+6. 30-Day Outlook (what will happen if no action is taken)
+
+Use professional tone. Be specific about branch names and areas.
+"""
+
+        with st.spinner("Generating executive briefing..."):
+            try:
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                st.markdown(resp.choices[0].message.content)
+            except Exception as e:
+                st.error(f"AI analysis failed: {e}")
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
 # ---------------------------------------------------
