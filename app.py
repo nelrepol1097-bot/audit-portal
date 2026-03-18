@@ -9,6 +9,7 @@ import snowflake.connector
 import streamlit as st
 from openai import OpenAI
 from streamlit_lottie import st_lottie
+from streamlit_plotly_events import plotly_events
 
 try:
     import streamlit as st  # redundant but harmless
@@ -2037,7 +2038,6 @@ def dashboard_analytics():
         cursor.execute("SELECT COMPANY, AREA, BRANCH FROM BUSINESS_PERMIT WHERE STATUS!='DONE'")
         return pd.DataFrame(cursor.fetchall(), columns=["COMPANY","AREA","BRANCH"])
 
-    # LOAD
     df_status = load_business_status()
     df_area = load_area_distribution()
     df = load_overview()
@@ -2070,8 +2070,6 @@ def dashboard_analytics():
             return score
 
         df["RISK"] = df.apply(risk, axis=1)
-    else:
-        df["RISK"] = []
 
     # =========================================================
     # KPI
@@ -2107,20 +2105,48 @@ def dashboard_analytics():
     st.divider()
 
     # =========================================================
-    # 📊 VISUALIZATION
+    # 📊 INTERACTIVE VISUALS (UPGRADED)
     # =========================================================
-    col1,col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
+    # 🎯 PIE (CLICKABLE)
     with col1:
         if not df_status.empty:
-            st.plotly_chart(px.pie(df_status, values="COUNT", names="STATUS"))
+            fig = px.pie(df_status, values="COUNT", names="STATUS",
+                         color="COUNT", color_continuous_scale="Blues")
 
+            selected = plotly_events(fig, click_event=True)
+            st.plotly_chart(fig, use_container_width=True)
+
+            if selected:
+                st.info(f"Selected: {selected[0]['label']}")
+
+    # 🌍 BAR (GRADIENT)
     with col2:
         if not df_area.empty:
-            st.plotly_chart(px.bar(df_area, x="AREA", y="COUNT"))
+            fig2 = px.bar(df_area, x="AREA", y="COUNT",
+                          color="COUNT", color_continuous_scale="Viridis")
 
+            selected_area = plotly_events(fig2, click_event=True)
+            st.plotly_chart(fig2, use_container_width=True)
+
+            if selected_area:
+                area = selected_area[0]["x"]
+                st.warning(f"📍 Area: {area}")
+                st.dataframe(df[df["AREA"] == area])
+
+    # ⚡ RISK SCATTER
     if not df.empty:
-        st.plotly_chart(px.scatter(df, x="AREA", y="RISK", color="SLA", size="RISK"))
+        fig3 = px.scatter(df, x="AREA", y="RISK", size="RISK",
+                          color="RISK",
+                          color_continuous_scale=["green","yellow","red"])
+
+        selected_risk = plotly_events(fig3, click_event=True)
+        st.plotly_chart(fig3, use_container_width=True)
+
+        if selected_risk:
+            st.error("⚠️ Drilldown")
+            st.dataframe(df[df["AREA"] == selected_risk[0]["x"]])
 
     # =========================================================
     # 🤖 AUTO INSIGHTS
@@ -2131,12 +2157,10 @@ def dashboard_analytics():
 
     if high_risk > 0:
         insights.append("🔴 Critical compliance risk detected")
-
     if late > 0:
-        insights.append("🟡 SLA delays are increasing")
-
+        insights.append("🟡 SLA delays increasing")
     if rate < 70:
-        insights.append("📉 Completion performance is low")
+        insights.append("📉 Low completion rate")
 
     if not insights:
         insights.append("🟢 System stable")
