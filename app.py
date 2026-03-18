@@ -1968,34 +1968,55 @@ def board_resolutions():
 # ---------------------------------------------------
 # DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
+from streamlit_plotly_events import plotly_events
+import plotly.graph_objects as go
+
 def dashboard_analytics():
     st.title("📊 Compliance Executive Dashboard")
 
     # =========================================================
-    # 🚀 HOLOGRAPHIC UI + EFFECTS
+    # 🚀 FUTURISTIC UI (UPGRADED)
     # =========================================================
     st.markdown("""
     <style>
+    body {
+        background-color: #0f172a;
+    }
+
     @keyframes glowPulse {
         0% { box-shadow: 0 0 10px #00d4ff; }
-        50% { box-shadow: 0 0 30px #00d4ff; }
+        50% { box-shadow: 0 0 40px #00d4ff; }
         100% { box-shadow: 0 0 10px #00d4ff; }
     }
 
     .holo-header {
         text-align:center;
-        font-size:28px;
+        font-size:32px;
         font-weight:bold;
         color:#00d4ff;
-        text-shadow: 0 0 10px #00d4ff, 0 0 30px #00d4ff;
+        text-shadow: 0 0 20px #00d4ff, 0 0 50px #00d4ff;
     }
 
     .kpi-card {
-        background: linear-gradient(135deg, #1e3a5f, #2c5364);
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
         padding: 20px;
         border-radius: 15px;
         text-align: center;
         animation: glowPulse 2s infinite;
+        transition: 0.3s;
+    }
+
+    .kpi-card:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 50px cyan;
+    }
+
+    .panel {
+        padding: 15px;
+        border-radius: 15px;
+        background: rgba(255,255,255,0.05);
+        backdrop-filter: blur(10px);
+        margin-bottom: 15px;
     }
 
     .alert-red {background: rgba(231,76,60,0.2); padding:10px; border-left:5px solid #e74c3c;}
@@ -2007,20 +2028,8 @@ def dashboard_analytics():
     """, unsafe_allow_html=True)
 
     # =========================================================
-    # DATA LOADERS
+    # DATA LOAD
     # =========================================================
-    @st.cache_data(ttl=60)
-    def load_business_status():
-        conn, cursor = get_cursor()
-        cursor.execute("SELECT STATUS, COUNT(*) FROM BUSINESS_PERMIT GROUP BY STATUS")
-        return pd.DataFrame(cursor.fetchall(), columns=["STATUS", "COUNT"])
-
-    @st.cache_data(ttl=60)
-    def load_area_distribution():
-        conn, cursor = get_cursor()
-        cursor.execute("SELECT AREA, COUNT(*) FROM BRANCH_TIN_ADDRESS GROUP BY AREA")
-        return pd.DataFrame(cursor.fetchall(), columns=["AREA", "COUNT"])
-
     @st.cache_data(ttl=60)
     def load_overview():
         conn, cursor = get_cursor()
@@ -2032,17 +2041,7 @@ def dashboard_analytics():
         cols = ["COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION","SEC_CERT","GROSS_SALES_CERT"]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    @st.cache_data(ttl=60)
-    def load_pending():
-        conn, cursor = get_cursor()
-        cursor.execute("SELECT COMPANY, AREA, BRANCH FROM BUSINESS_PERMIT WHERE STATUS!='DONE'")
-        return pd.DataFrame(cursor.fetchall(), columns=["COMPANY","AREA","BRANCH"])
-
-    df_status = load_business_status()
-    df_area = load_area_distribution()
     df = load_overview()
-    df_pending = load_pending()
-
     today = datetime.today().date()
 
     # =========================================================
@@ -2051,129 +2050,129 @@ def dashboard_analytics():
     if not df.empty:
         df["DEADLINE"] = pd.to_datetime(df["DEADLINE"]).dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df["DEADLINE_EXTENSION"]).dt.date
-
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
-        df["SLA"] = df["FINAL_DEADLINE"].apply(lambda d: "LATE" if d < today else "ON_TIME")
 
-        def risk(row):
-            score = 0
-            if ((df_pending["COMPANY"] == row["COMPANY"]) &
-                (df_pending["AREA"] == row["AREA"]) &
-                (df_pending["BRANCH"] == row["BRANCH"])).any():
-                score += 40
-            if row["SLA"] == "LATE":
-                score += 40
-            if row["SEC_CERT"] in ["PENDING"]:
-                score += 10
-            if pd.isna(row["GROSS_SALES_CERT"]):
-                score += 10
-            return score
+        df["SLA"] = df["FINAL_DEADLINE"].apply(
+            lambda d: "LATE" if d < today else "ON_TIME"
+        )
 
-        df["RISK"] = df.apply(risk, axis=1)
+        df["RISK"] = (
+            (df["SLA"] == "LATE") * 40 +
+            (df["SEC_CERT"] == "PENDING") * 30 +
+            (df["GROSS_SALES_CERT"].isna()) * 30
+        )
 
     # =========================================================
     # KPI
     # =========================================================
-    total = int(df_area["COUNT"].sum()) if not df_area.empty else 0
-    done = int(df_status[df_status["STATUS"]=="DONE"]["COUNT"].sum()) if not df_status.empty else 0
-    total_all = int(df_status["COUNT"].sum()) if not df_status.empty else 0
-    rate = (done/total_all*100) if total_all else 0
-    late = int(df[df["SLA"]=="LATE"].shape[0]) if not df.empty else 0
-    high_risk = int(df[df["RISK"]>=70].shape[0]) if not df.empty else 0
+    total = len(df)
+    late = len(df[df["SLA"]=="LATE"])
+    high_risk = len(df[df["RISK"]>=70])
+    rate = ((total-late)/total*100) if total else 0
 
     c1,c2,c3,c4 = st.columns(4)
 
-    c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total Branch</p></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>Completion</p></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late SLA</p></div>', unsafe_allow_html=True)
+    c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
+    c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
     st.divider()
 
     # =========================================================
-    # 🚨 ALERTS
+    # 📈 LINE TREND (NEW)
     # =========================================================
-    st.subheader("⚠️ Live Alerts")
+    st.markdown("### 📈 SLA Trend Over Time")
 
-    if high_risk > 0:
-        st.markdown(f'<div class="alert-red">🔴 {high_risk} High Risk Branches</div>', unsafe_allow_html=True)
-    if late > 0:
-        st.markdown(f'<div class="alert-yellow">🟡 {late} Late SLA</div>', unsafe_allow_html=True)
-    if high_risk==0 and late==0:
-        st.markdown('<div class="alert-green">🟢 All Stable</div>', unsafe_allow_html=True)
-
-    st.divider()
-
-    # =========================================================
-    # 📊 INTERACTIVE VISUALS (UPGRADED)
-    # =========================================================
-    col1, col2 = st.columns(2)
-
-    # 🎯 PIE (CLICKABLE)
-    with col1:
-        if not df_status.empty:
-            fig = px.pie(df_status, values="COUNT", names="STATUS",
-                         color="COUNT", color_continuous_scale="Blues")
-
-            selected = plotly_events(fig, click_event=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-            if selected:
-                st.info(f"Selected: {selected[0]['label']}")
-
-    # 🌍 BAR (GRADIENT)
-    with col2:
-        if not df_area.empty:
-            fig2 = px.bar(df_area, x="AREA", y="COUNT",
-                          color="COUNT", color_continuous_scale="Viridis")
-
-            selected_area = plotly_events(fig2, click_event=True)
-            st.plotly_chart(fig2, use_container_width=True)
-
-            if selected_area:
-                area = selected_area[0]["x"]
-                st.warning(f"📍 Area: {area}")
-                st.dataframe(df[df["AREA"] == area])
-
-    # ⚡ RISK SCATTER
     if not df.empty:
-        fig3 = px.scatter(df, x="AREA", y="RISK", size="RISK",
-                          color="RISK",
-                          color_continuous_scale=["green","yellow","red"])
+        trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
 
-        selected_risk = plotly_events(fig3, click_event=True)
-        st.plotly_chart(fig3, use_container_width=True)
+        fig_line = px.line(trend, x="FINAL_DEADLINE", y="COUNT",
+                           markers=True)
 
-        if selected_risk:
-            st.error("⚠️ Drilldown")
-            st.dataframe(df[df["AREA"] == selected_risk[0]["x"]])
+        st.plotly_chart(fig_line, use_container_width=True)
+
+        # 🤖 Insight
+        if trend["COUNT"].iloc[-1] > trend["COUNT"].mean():
+            st.warning("⚠️ Increasing compliance workload trend")
+        else:
+            st.success("✅ Stable trend")
 
     # =========================================================
-    # 🤖 AUTO INSIGHTS
+    # 🌊 WATERFALL (NEW)
     # =========================================================
-    st.subheader("🤖 AI Insights")
+    st.markdown("### 🌊 Risk Breakdown")
+
+    risk_late = len(df[df["SLA"]=="LATE"])
+    risk_pending = len(df[df["SEC_CERT"]=="PENDING"])
+    risk_missing = len(df[df["GROSS_SALES_CERT"].isna()])
+
+    fig_waterfall = go.Figure(go.Waterfall(
+        x=["Late SLA", "Pending SEC", "Missing Sales", "Total Risk"],
+        y=[risk_late, risk_pending, risk_missing,
+           risk_late + risk_pending + risk_missing]
+    ))
+
+    st.plotly_chart(fig_waterfall, use_container_width=True)
+
+    st.info("📊 Main driver of risk is SLA delay" if risk_late > risk_pending else "📊 Certification delays dominant")
+
+    # =========================================================
+    # 🎯 INTERACTIVE AREA ANALYSIS
+    # =========================================================
+    st.markdown("### 🌍 Area Intelligence")
+
+    if not df.empty:
+        area_df = df.groupby("AREA").size().reset_index(name="COUNT")
+
+        fig_bar = px.bar(area_df, x="AREA", y="COUNT", color="COUNT")
+
+        selected = plotly_events(fig_bar, click_event=True)
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        if selected:
+            area = selected[0]["x"]
+            st.warning(f"📍 Drilldown: {area}")
+            st.dataframe(df[df["AREA"]==area])
+
+    # =========================================================
+    # ⚡ RISK SCATTER
+    # =========================================================
+    st.markdown("### ⚡ Risk Heatmap")
+
+    if not df.empty:
+        fig_scatter = px.scatter(df, x="AREA", y="RISK",
+                                 size="RISK", color="RISK")
+
+        selected = plotly_events(fig_scatter, click_event=True)
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+        if selected:
+            st.error("⚠️ High Risk Drilldown")
+            st.dataframe(df[df["AREA"]==selected[0]["x"]])
+
+    # =========================================================
+    # 🤖 AI INSIGHTS PANEL (UPGRADED)
+    # =========================================================
+    st.markdown("### 🤖 AI Executive Insights")
 
     insights = []
 
     if high_risk > 0:
-        insights.append("🔴 Critical compliance risk detected")
-    if late > 0:
-        insights.append("🟡 SLA delays increasing")
-    if rate < 70:
-        insights.append("📉 Low completion rate")
-
-    if not insights:
-        insights.append("🟢 System stable")
+        insights.append("🔴 High-risk branches require immediate intervention")
+    if late > total * 0.3:
+        insights.append("⚠️ SLA breach trend critical (>30%)")
+    if rate > 85:
+        insights.append("🟢 Strong compliance performance")
 
     for i in insights:
-        st.write(i)
+        st.markdown(f"- {i}")
 
     # =========================================================
-    # 📊 TABLE
+    # 📋 TABLE
     # =========================================================
-    st.subheader("📋 Drilldown")
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
+    st.markdown("### 📋 Full Drilldown Table")
+    st.dataframe(df, use_container_width=True)
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
 # ---------------------------------------------------
