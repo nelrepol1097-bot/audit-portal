@@ -1087,9 +1087,48 @@ def branch_tin_address():
     st.title("🏢 Branch TIN & Address")
 
     # =========================
-    # COMPANY SELECTOR
+    # 🚀 FUTURISTIC UI STYLE
     # =========================
-    col1, col2, col3 = st.columns(3)
+    st.markdown("""
+    <style>
+    .holo-title {
+        text-align:center;
+        font-size:18px;
+        font-weight:bold;
+        color:#00ffff;
+        text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff;
+        margin-bottom:10px;
+    }
+
+    button[kind="secondary"] {
+        width: 100%;
+        border-radius: 12px !important;
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+        color: #00ffff !important;
+        border: 1px solid rgba(0,255,255,0.5);
+        box-shadow: 0 0 10px rgba(0,255,255,0.4);
+        transition: all 0.3s ease;
+    }
+
+    button[kind="secondary"]:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 25px rgba(0,255,255,0.9);
+    }
+
+    button[kind="secondary"]:active {
+        box-shadow: 0 0 40px rgba(0,255,255,1),
+                    0 0 80px rgba(0,255,255,0.6);
+        transform: scale(0.97);
+    }
+    </style>
+
+    <div class="holo-title">⚡ BRANCH CONTROL PANEL ⚡</div>
+    """, unsafe_allow_html=True)
+
+    # =========================
+    # 🔥 ALL BUTTONS IN ONE LINE
+    # =========================
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         if st.button("SUKI Branch"):
@@ -1103,16 +1142,11 @@ def branch_tin_address():
         if st.button("FASTCASH Branch"):
             st.session_state.company = "FASTCASH"
 
-    # =========================
-    # EXTRA VIEW BUTTONS
-    # =========================
-    colA, colB = st.columns(2)
-
-    with colA:
+    with col4:
         if st.button("🆕 NEW BRANCH ADDRESS"):
             st.session_state.view_mode = "NEW"
 
-    with colB:
+    with col5:
         if st.button("🔁 CHANGED ADDRESS"):
             st.session_state.view_mode = "CHANGED"
 
@@ -1120,14 +1154,11 @@ def branch_tin_address():
         st.session_state.view_mode = "MAIN"
 
     # =========================
-    # MAIN
+    # MAIN (UNCHANGED LOGIC)
     # =========================
     if "company" in st.session_state:
         company = st.session_state.company
 
-        # =========================
-        # LOAD DATA (NO CACHE)
-        # =========================
         def load_data(company):
             conn, cursor = get_cursor()
             cursor.execute("""
@@ -1159,9 +1190,6 @@ def branch_tin_address():
             key=f"{company}_main_editor"
         )
 
-        # =========================
-        # SAVE (MAIN TABLE)
-        # =========================
         if st.button("💾 Save Changes (Main Table)"):
             edited_df = edited_df.where(pd.notnull(edited_df), None)
 
@@ -1208,35 +1236,25 @@ def branch_tin_address():
         st.divider()
 
         # =========================
-        # 🆕 NEW BRANCH VIEW (EXCEL STYLE)
+        # 🆕 NEW VIEW
         # =========================
         if st.session_state.view_mode == "NEW":
-
             st.subheader("🆕 NEW BRANCH ADDRESS")
 
             df_new = df[df["STATUS"] == "NEW"].copy()
-
             df_new["ADDRESS"] = df_new["UPDATED_ADDRESS"]
 
-            view_new = df_new[[
-                "COMPANY",
-                "BRANCH_NAME",
-                "ADDRESS",
-                "DATE_OPEN"
-            ]]
-
-            edited_new = st.data_editor(
-                view_new,
+            st.data_editor(
+                df_new[["COMPANY","BRANCH_NAME","ADDRESS","DATE_OPEN"]],
                 num_rows="dynamic",
                 use_container_width=True,
                 key=f"{company}_new_editor"
             )
 
         # =========================
-        # 🔁 CHANGED ADDRESS VIEW
+        # 🔁 CHANGED VIEW
         # =========================
         if st.session_state.view_mode == "CHANGED":
-
             st.subheader("🔁 CHANGED ADDRESS")
 
             df_changed = df[df["STATUS"] == "CHANGED"].copy()
@@ -1246,15 +1264,8 @@ def branch_tin_address():
 
             df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
 
-            view_changed = df_changed[[
-                "COMPANY",
-                "BRANCH_NAME",
-                "ADDRESS (NEW ADDRESS)",
-                "OLD_ADDRESS"
-            ]]
-
-            edited_changed = st.data_editor(
-                view_changed,
+            st.data_editor(
+                df_changed[["COMPANY","BRANCH_NAME","ADDRESS (NEW ADDRESS)","OLD_ADDRESS"]],
                 num_rows="dynamic",
                 use_container_width=True,
                 key=f"{company}_changed_editor"
