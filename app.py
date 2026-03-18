@@ -2211,10 +2211,7 @@ def dashboard():
         "Board Resolutions": board_resolutions,
     }
 
-    if menu == "Board Resolutions":
-        st.title("📄 Board Resolutions Report")
-    else:
-        pages[menu]()
+    pages[menu]()
 
     st.sidebar.divider()
     st.sidebar.markdown(
