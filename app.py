@@ -1899,7 +1899,7 @@ def dashboard_analytics():
 
     today = datetime.today().date()
 
-    # SLA status per branch (on‑time / late)
+        # SLA status per branch (on‑time / late)
     if not df_overview.empty:
         df_overview_work = df_overview.copy()
         for c in ["DEADLINE", "DEADLINE_EXTENSION"]:
@@ -1915,7 +1915,10 @@ def dashboard_analytics():
             else ("LATE" if d < today else "ON_TIME")
         )
     else:
-        df_overview_work = df_overview
+        # empty dataframe with the same columns plus the ones we add later
+        df_overview_work = df_overview.copy()
+        df_overview_work["EFFECTIVE_DEADLINE"] = pd.NaT
+        df_overview_work["SLA_STATUS"] = []
 
     # Risk scoring (simple rule‑based: 0–100)
     def compute_risk(row):
@@ -1969,12 +1972,19 @@ def dashboard_analytics():
     total_permits = int(df_status["COUNT"].sum()) if not df_status.empty else 0
     completion_rate = (done_permits / total_permits * 100) if total_permits else 0
 
-    late_branches = int(
-        df_overview_work.loc[df_overview_work["SLA_STATUS"] == "LATE"].shape[0]
-    )
-    high_risk = int(
-        df_overview_work.loc[df_overview_work["RISK_BUCKET"] == "RED"].shape[0]
-    )
+        if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
+        late_branches = int(
+            df_overview_work.loc[df_overview_work["SLA_STATUS"] == "LATE"].shape[0]
+        )
+    else:
+        late_branches = 0
+
+    if not df_overview_work.empty and "RISK_BUCKET" in df_overview_work.columns:
+        high_risk = int(
+            df_overview_work.loc[df_overview_work["RISK_BUCKET"] == "RED"].shape[0]
+        )
+    else:
+        high_risk = 0
 
     col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
     col_kpi1.metric("Total Branches", f"{total_branches}")
@@ -2027,10 +2037,12 @@ def dashboard_analytics():
             st.plotly_chart(fig2, use_container_width=True)
 
         # SLA status chart
-        if not df_overview_work.empty:
+                # SLA status chart
+        if not df_overview_work.empty and "SLA_STATUS" in df_overview_work.columns:
             sla_counts = (
                 df_overview_work["SLA_STATUS"].value_counts().reset_index()
             )
+            ...
             sla_counts.columns = ["SLA_STATUS", "COUNT"]
             fig3 = px.bar(
                 sla_counts,
