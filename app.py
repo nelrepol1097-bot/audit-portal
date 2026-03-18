@@ -1642,7 +1642,7 @@ def secretary_certificates():
         cursor.execute(
             """
             SELECT
-                ID, AREA, MONTH_YEAR, BRANCH, REMARKS,
+                ID, AREA, MONTH_YEAR, BRANCH, COMPANY, REMARKS,
                 DATE_FORWARDED, STATUS, DATE_RECEIVED, FINAL_STATUS
             FROM SECRETARY_CERTIFICATES
         """
