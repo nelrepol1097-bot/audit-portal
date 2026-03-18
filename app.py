@@ -1769,7 +1769,151 @@ def secretary_certificates():
             st.session_state.sec_orig = load_sec()
             safe_rerun()
 
+def board_resolutions():
+    st.title("📄 Board Resolutions Compliance")
 
+    # ---------------------------------------------------
+    # LOAD DATA (NO CACHE for real-time)
+    # ---------------------------------------------------
+    def load_board():
+        conn, cursor = get_cursor()
+        cursor.execute("""
+            SELECT
+                ID,
+                COMPANY,
+                REMARKS,
+                DATE_FORWARDED,
+                DATE_RECEIVED,
+                STATUS
+            FROM BOARD_RESOLUTIONS
+        """)
+        data = cursor.fetchall()
+
+        columns = [
+            "ID",
+            "COMPANY",
+            "REMARKS",
+            "DATE_FORWARDED",
+            "DATE_RECEIVED",
+            "STATUS",
+        ]
+
+        return pd.DataFrame(data, columns=columns)
+
+    df = load_board()
+
+    # ---------------------------------------------------
+    # SESSION STATE
+    # ---------------------------------------------------
+    if "board_orig" not in st.session_state:
+        st.session_state.board_orig = df.copy()
+
+    # ---------------------------------------------------
+    # DATA EDITOR
+    # ---------------------------------------------------
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="board_editor",
+        column_config={
+            "DATE_FORWARDED": st.column_config.DateColumn("Date Forwarded"),
+            "DATE_RECEIVED": st.column_config.DateColumn("Date Received"),
+        },
+    )
+
+    col_save, col_undo, col_refresh = st.columns(3)
+
+    # ---------------------------------------------------
+    # SAVE
+    # ---------------------------------------------------
+    with col_save:
+        if st.button("💾 Save Changes", key="board_save"):
+
+            log_activity("Board Resolutions", "SAVE")
+
+            edited_df = edited_df.replace({pd.NA: None})
+
+            handle_save_with_id(
+                df_name_prefix="board",
+                table_name="BOARD_RESOLUTIONS",
+                df=edited_df,
+                id_col="ID",
+                insert_sql="""
+                    INSERT INTO BOARD_RESOLUTIONS
+                    (COMPANY, REMARKS, DATE_FORWARDED, DATE_RECEIVED, STATUS)
+                    VALUES (%s,%s,%s,%s,%s)
+                """,
+                update_sql="""
+                    UPDATE BOARD_RESOLUTIONS
+                    SET
+                        COMPANY=%s,
+                        REMARKS=%s,
+                        DATE_FORWARDED=%s,
+                        DATE_RECEIVED=%s,
+                        STATUS=%s
+                    WHERE ID=%s
+                """,
+                insert_cols=[
+                    "COMPANY",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "DATE_RECEIVED",
+                    "STATUS",
+                ],
+                update_cols=[
+                    "COMPANY",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "DATE_RECEIVED",
+                    "STATUS",
+                ],
+            )
+
+            # ✅ REAL-TIME REFRESH (NO .clear())
+            st.session_state.board_orig = load_board()
+
+            st.success("Data saved successfully ✅")
+            safe_rerun()
+
+    # ---------------------------------------------------
+    # UNDO
+    # ---------------------------------------------------
+    with col_undo:
+        if st.button("↩ Undo last delete", key="board_undo"):
+
+            ok = handle_undo_with_id(
+                df_name_prefix="board",
+                table_name="BOARD_RESOLUTIONS",
+                insert_sql_with_id="""
+                    INSERT INTO BOARD_RESOLUTIONS
+                    (ID, COMPANY, REMARKS, DATE_FORWARDED, DATE_RECEIVED, STATUS)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                """,
+                cols_with_id=[
+                    "ID",
+                    "COMPANY",
+                    "REMARKS",
+                    "DATE_FORWARDED",
+                    "DATE_RECEIVED",
+                    "STATUS",
+                ],
+            )
+
+            if ok:
+                st.session_state.board_orig = load_board()
+                st.success("Delete undone 🔄")
+                safe_rerun()
+            else:
+                st.info("Nothing to undo")
+
+    # ---------------------------------------------------
+    # REFRESH
+    # ---------------------------------------------------
+    with col_refresh:
+        if st.button("🔄 Refresh", key="board_refresh"):
+            st.session_state.board_orig = load_board()
+            safe_rerun()
 # ---------------------------------------------------
 # DASHBOARD ANALYTICS (Power BI + charts)
 # ---------------------------------------------------
@@ -2034,6 +2178,7 @@ def dashboard():
             "Secretary Certificates",
             "BIR 1906",
             "Business Permits",
+            "Board Resolutions",
             "BOA Stickers",
             "Fire Safety",
             "Board Resolutions",
@@ -2063,6 +2208,7 @@ def dashboard():
         "Tax Mapped": tax_mapped,
         "AI Compliance Copilot": ai_copilot,
         "Admin Panel": admin_panel,
+        "Board Resolutions": board_resolutions,
     }
 
     if menu == "Board Resolutions":
