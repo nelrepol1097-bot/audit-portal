@@ -2097,9 +2097,9 @@ def dashboard_analytics():
 
 
    # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
-st.markdown('<div class="infographic">', unsafe_allow_html=True)
+   st.markdown('<div class="infographic">', unsafe_allow_html=True)
 
-st.subheader("🏢 Business Permit Infographic Insight")
+   st.subheader("🏢 Business Permit Infographic Insight")
 
 if not df.empty:
 
