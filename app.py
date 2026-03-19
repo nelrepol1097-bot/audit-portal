@@ -2437,6 +2437,209 @@ def dashboard_analytics():
 
     st.markdown('</div></div>', unsafe_allow_html=True)
 
+        # ========================= FIRE SAFETY HOLOGRAPHIC REPORT =========================
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_fire_report_data():
+        conn, cursor = get_cursor()
+        cursor.execute("""
+            SELECT
+                COMPANY,
+                AREA,
+                BRANCH,
+                FSIC_CERTIFICATE_DATE,
+                VALID_UNTIL,
+                STATUS,
+                REMARKS
+            FROM FIRE_SAFETY
+        """)
+        cols = [
+            "COMPANY",
+            "AREA",
+            "BRANCH",
+            "FSIC_CERTIFICATE_DATE",
+            "VALID_UNTIL",
+            "STATUS",
+            "REMARKS",
+        ]
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
+
+    fire_df = load_fire_report_data()
+
+    st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>Fire Safety Compliance Report</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">VALIDITY · STATUS · REMARKS INTELLIGENCE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-body">', unsafe_allow_html=True)
+
+    if not fire_df.empty:
+        # Normalize values
+        fire_df["VALID_UNTIL"] = pd.to_datetime(fire_df["VALID_UNTIL"], errors="coerce").dt.date
+        fire_df["STATUS"] = fire_df["STATUS"].fillna("").astype(str).str.strip().str.upper()
+        fire_df["REMARKS"] = fire_df["REMARKS"].fillna("NO REMARKS").astype(str).str.strip()
+
+        today = datetime.today().date()
+        fire_df["DAYS_TO_EXPIRY"] = fire_df["VALID_UNTIL"].apply(
+            lambda d: (d - today).days if pd.notna(d) else None
+        )
+
+        # Validity state
+        def validity_state(days_left):
+            if days_left is None:
+                return "NO VALIDITY DATE"
+            if days_left < 0:
+                return "EXPIRED"
+            if days_left <= 30:
+                return "EXPIRING <=30 DAYS"
+            if days_left <= 90:
+                return "EXPIRING 31-90 DAYS"
+            return "VALID >90 DAYS"
+
+        fire_df["VALIDITY_STATE"] = fire_df["DAYS_TO_EXPIRY"].apply(validity_state)
+
+        # KPI counts
+        total_fire = len(fire_df)
+        expired = (fire_df["VALIDITY_STATE"] == "EXPIRED").sum()
+        exp_30 = (fire_df["VALIDITY_STATE"] == "EXPIRING <=30 DAYS").sum()
+        valid_90 = (fire_df["VALIDITY_STATE"] == "VALID >90 DAYS").sum()
+
+        f1, f2, f3, f4 = st.columns(4)
+        f1.metric("Total Fire Records", int(total_fire))
+        f2.metric("Expired", int(expired))
+        f3.metric("Expiring <=30 Days", int(exp_30))
+        f4.metric("Valid >90 Days", int(valid_90))
+
+        # Charts row 1: validity donut + status bar
+        c_left, c_right = st.columns([1, 1.2])
+
+        with c_left:
+            st.markdown("##### Certificate Validity Distribution")
+            validity_count = fire_df["VALIDITY_STATE"].value_counts().reset_index()
+            validity_count.columns = ["VALIDITY_STATE", "COUNT"]
+
+            fig_validity = px.pie(
+                validity_count,
+                names="VALIDITY_STATE",
+                values="COUNT",
+                hole=0.55,
+                color="VALIDITY_STATE",
+                color_discrete_map={
+                    "EXPIRED": "#ef4444",
+                    "EXPIRING <=30 DAYS": "#f59e0b",
+                    "EXPIRING 31-90 DAYS": "#3b82f6",
+                    "VALID >90 DAYS": "#22c55e",
+                    "NO VALIDITY DATE": "#9ca3af",
+                },
+            )
+            fig_validity.update_traces(textinfo="percent+label")
+            fig_validity.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                showlegend=False,
+            )
+            st.plotly_chart(fig_validity, use_container_width=True)
+
+        with c_right:
+            st.markdown("##### Status Overview")
+            status_count = fire_df["STATUS"].replace("", "BLANK").value_counts().reset_index()
+            status_count.columns = ["STATUS", "COUNT"]
+
+            fig_status_fire = px.bar(
+                status_count,
+                x="STATUS",
+                y="COUNT",
+                color="COUNT",
+                color_continuous_scale="Blues",
+                text="COUNT",
+            )
+            fig_status_fire.update_traces(textposition="outside")
+            fig_status_fire.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis_title="STATUS",
+                yaxis_title="COUNT",
+            )
+            st.plotly_chart(fig_status_fire, use_container_width=True)
+
+        # Charts row 2: remarks analysis + area risk
+        d_left, d_right = st.columns([1, 1.2])
+
+        with d_left:
+            st.markdown("##### Top Remarks")
+            remarks_count = fire_df["REMARKS"].value_counts().head(10).reset_index()
+            remarks_count.columns = ["REMARKS", "COUNT"]
+
+            fig_remarks = px.bar(
+                remarks_count.sort_values("COUNT", ascending=True),
+                x="COUNT",
+                y="REMARKS",
+                orientation="h",
+                color="COUNT",
+                color_continuous_scale="Tealgrn",
+            )
+            fig_remarks.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                yaxis_title="REMARKS",
+                xaxis_title="COUNT",
+            )
+            st.plotly_chart(fig_remarks, use_container_width=True)
+
+        with d_right:
+            st.markdown("##### Expired / Expiring by Area")
+            area_exp = (
+                fire_df.assign(
+                    ALERT=fire_df["VALIDITY_STATE"].isin(["EXPIRED", "EXPIRING <=30 DAYS"])
+                )
+                .groupby("AREA", dropna=False)["ALERT"]
+                .sum()
+                .reset_index(name="ALERT_COUNT")
+            )
+
+            if not area_exp.empty:
+                fig_area_alert = px.bar(
+                    area_exp,
+                    x="AREA",
+                    y="ALERT_COUNT",
+                    color="ALERT_COUNT",
+                    color_continuous_scale="Reds",
+                    text="ALERT_COUNT",
+                )
+                fig_area_alert.update_traces(textposition="outside")
+                fig_area_alert.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis_title="AREA",
+                    yaxis_title="EXPIRED + <=30 DAYS",
+                )
+                st.plotly_chart(fig_area_alert, use_container_width=True)
+
+        # Critical table
+        st.markdown("##### 🚨 Priority Branches (Expired or Expiring <=30 Days)")
+        critical_df = fire_df[
+            fire_df["VALIDITY_STATE"].isin(["EXPIRED", "EXPIRING <=30 DAYS"])
+        ].copy()
+
+        if critical_df.empty:
+            st.success("No expired or near-expiry fire safety certificates.")
+        else:
+            critical_df = critical_df.sort_values(
+                by=["DAYS_TO_EXPIRY"], ascending=True, na_position="last"
+            )
+            st.dataframe(
+                critical_df[
+                    ["COMPANY", "AREA", "BRANCH", "VALID_UNTIL", "DAYS_TO_EXPIRY", "STATUS", "REMARKS", "VALIDITY_STATE"]
+                ],
+                use_container_width=True,
+            )
+
+    else:
+        st.warning("No FIRE_SAFETY data available for report.")
+
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
     # ========================= AI RISK INTELLIGENCE & BREAKDOWN =========================
     st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>AI Risk Intelligence</div>', unsafe_allow_html=True)
