@@ -2027,9 +2027,9 @@ def dashboard_analytics():
 
     st.title("📊 Compliance Executive Dashboard")
 
-    # ========================= LOAD DATA =========================
+    # ========================= LOAD BUSINESS PERMIT DATA =========================
     @st.cache_data(ttl=60)
-    def load_data():
+    def load_bp_data():
         conn, cursor = get_cursor()
         cursor.execute("""
         SELECT COMPANY, AREA, BRANCH, DEADLINE, DEADLINE_EXTENSION,
@@ -2039,7 +2039,7 @@ def dashboard_analytics():
         cols = ["COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION","SEC_CERT","GROSS_SALES_CERT"]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    df = load_data()
+    df = load_bp_data()
 
     # normalize columns
     df.columns = df.columns.str.upper()
@@ -2086,6 +2086,121 @@ def dashboard_analytics():
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
+
+    # ========================= GLOBAL DONE / PENDING KPI ACROSS MODULES =========================
+    @st.cache_data(ttl=60, show_spinner=False)
+    def load_status_kpis_local():
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT
+                'SECRETARY_CERTIFICATES' AS MODULE,
+                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(
+                    CASE
+                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        ELSE 0
+                    END
+                ) AS PENDING
+            FROM SECRETARY_CERTIFICATES
+
+            UNION ALL
+
+            SELECT
+                'BOARD_RESOLUTIONS' AS MODULE,
+                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(
+                    CASE
+                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        ELSE 0
+                    END
+                ) AS PENDING
+            FROM BOARD_RESOLUTIONS
+
+            UNION ALL
+
+            SELECT
+                'BIR_1906_ATP' AS MODULE,
+                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(
+                    CASE
+                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        ELSE 0
+                    END
+                ) AS PENDING
+            FROM BIR_1906_ATP
+
+            UNION ALL
+
+            SELECT
+                'ATP_CERTIFICATES' AS MODULE,
+                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(
+                    CASE
+                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        ELSE 0
+                    END
+                ) AS PENDING
+            FROM ATP_CERTIFICATES
+
+            UNION ALL
+
+            SELECT
+                'BOA_STICKER' AS MODULE,
+                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(
+                    CASE
+                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        ELSE 0
+                    END
+                ) AS PENDING
+            FROM BOA_STICKER
+            """
+        )
+        cols = ["MODULE", "DONE", "PENDING"]
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
+
+    status_df = load_status_kpis_local()
+
+    st.markdown('<div class="infographic">', unsafe_allow_html=True)
+    st.subheader("✅ DONE vs Pending by Module")
+
+    if not status_df.empty:
+        total_done = int(status_df["DONE"].sum())
+        total_pending = int(status_df["PENDING"].sum())
+        grand_total = total_done + total_pending
+        completion_rate = (total_done / grand_total * 100) if grand_total else 0
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total DONE", total_done)
+        k2.metric("Pending / In-Process / Blank", total_pending)
+        k3.metric("Overall Completion Rate", f"{completion_rate:.1f}%")
+
+        st.dataframe(status_df, use_container_width=True)
+
+        fig_status_mod = px.bar(
+            status_df.melt(
+                id_vars="MODULE",
+                value_vars=["DONE", "PENDING"],
+                var_name="STATE",
+                value_name="COUNT",
+            ),
+            x="MODULE",
+            y="COUNT",
+            color="STATE",
+            barmode="group",
+            title="Status by Module",
+        )
+        st.plotly_chart(fig_status_mod, use_container_width=True)
+    else:
+        st.info("No status data available for the selected modules.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
