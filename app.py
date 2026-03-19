@@ -988,6 +988,7 @@ def fire_safety():
             "FSIC_CERTIFICATE_DATE",
             "VALID_UNTIL",
             "FSIC_FEE",
+            "STATUS",
             "REMARKS",
         ]
         return pd.DataFrame(data, columns=columns)
@@ -1018,8 +1019,8 @@ def fire_safety():
                 id_col="ID",
                 insert_sql="""
                     INSERT INTO FIRE_SAFETY
-                    (COMPANY,AREA,BRANCH,FSIC_CERTIFICATE_DATE,VALID_UNTIL,FSIC_FEE,REMARKS)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    (COMPANY,AREA,BRANCH,FSIC_CERTIFICATE_DATE,VALID_UNTIL,FSIC_FEE,STATUS,REMARKS)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
                     UPDATE FIRE_SAFETY
@@ -1030,6 +1031,7 @@ def fire_safety():
                         FSIC_CERTIFICATE_DATE=%s,
                         VALID_UNTIL=%s,
                         FSIC_FEE=%s,
+                        STATUS=%s,
                         REMARKS=%s
                     WHERE ID=%s
                 """,
@@ -1040,6 +1042,7 @@ def fire_safety():
                     "FSIC_CERTIFICATE_DATE",
                     "VALID_UNTIL",
                     "FSIC_FEE",
+                    "STATUS",
                     "REMARKS",
                 ],
                 update_cols=[
@@ -1049,6 +1052,7 @@ def fire_safety():
                     "FSIC_CERTIFICATE_DATE",
                     "VALID_UNTIL",
                     "FSIC_FEE",
+                    "STATUS",
                     "REMARKS",
                 ],
             )
@@ -1075,6 +1079,7 @@ def fire_safety():
                     "FSIC_CERTIFICATE_DATE",
                     "VALID_UNTIL",
                     "FSIC_FEE",
+                    "STATUS",
                     "REMARKS",
                 ],
             )
