@@ -2146,7 +2146,7 @@ def dashboard_analytics():
     </style>
 
     <div class="title-glow">COMPLIANCE COMMAND CENTER</div>
-    <div class="subtitle-chip">HOLOGRAPHIC EXECUTIVE INFOGRAPHIC</div>
+    <div class="subtitle-chip">REPORT</div>
     """, unsafe_allow_html=True)
 
     st.title("")
@@ -2773,7 +2773,7 @@ def dashboard():
     with st.sidebar:
         st.markdown('<div class="sidebar-glass"><div class="sidebar-content">', unsafe_allow_html=True)
         st.markdown('<div class="sb-title">COMPLIANCE HUB</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sb-subtitle">HOLOGRAPHIC NAVIGATION MATRIX</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-subtitle">Navigation Pane</div>', unsafe_allow_html=True)
 
         live_clock_js()
 
