@@ -357,10 +357,11 @@ def login():
         email = st.text_input("Email")
         password_input = st.text_input("Password", type="password")
 
-        if st.button("Login"):
-            if conn is None or cursor is None:
-                conn = get_connection()
-                cursor = conn.cursor()
+           st.session_state.logged_in = True
+           st.session_state.user = email
+           st.session_state.page = "dashboard"   # ✅ ADD THIS
+
+           safe_rerun()   # ✅ ADD THIS
 
             query = """
             SELECT STATUS
@@ -398,8 +399,9 @@ def login():
 
         st.divider()
 
-        if st.button("Create Account"):
-            st.session_state.page = "register"
+           if st.button("Create Account"):
+           st.session_state.page = "register"
+           safe_rerun()   # ✅ ADD THIS
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -434,9 +436,12 @@ def register():
         conn.commit()
         st.success("Account created successfully.")
         st.info("Wait for admin approval.")
+        st.session_state.page = "login"   # ✅ ADD
+        safe_rerun()                      # ✅ ADD
 
     if st.button("Back to Login"):
-        st.session_state.page = "login"
+     st.session_state.page = "login"
+     safe_rerun()   # ✅ ADD
 
 
 # ---------------------------------------------------
@@ -2278,9 +2283,9 @@ def dashboard():
 # ---------------------------------------------------
 
 if not st.session_state.logged_in:
-    if st.session_state.page == "login":
-        login()
-    elif st.session_state.page == "register":
+    if st.session_state.page == "register":
         register()
+    else:
+        login()
 else:
     dashboard()
