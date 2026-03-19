@@ -2548,34 +2548,218 @@ def dashboard_analytics():
 # MAIN DASHBOARD PAGE (sidebar navigation)
 # ---------------------------------------------------
 def dashboard():
+    # ========================= HOLOGRAPHIC SIDEBAR STYLES =========================
+    st.markdown(
+        """
+    <style>
+    /* Sidebar container */
+    section[data-testid="stSidebar"] {
+        background: radial-gradient(circle at top, #020617 0, #020617 35%, #0b1120 100%);
+        border-right: 1px solid rgba(148,163,255,0.35);
+        box-shadow: 0 0 30px rgba(15,23,42,1);
+    }
+
+    /* Sidebar inner glass panel */
+    .sidebar-glass {
+        background: radial-gradient(circle at top left, rgba(56,189,248,0.16), transparent 60%),
+                    radial-gradient(circle at bottom right, rgba(129,140,248,0.16), transparent 60%),
+                    rgba(15,23,42,0.92);
+        border-radius: 20px;
+        padding: 14px 14px 18px 14px;
+        border: 1px solid rgba(148,163,255,0.45);
+        box-shadow:
+            0 0 0 1px rgba(15,23,42,1),
+            0 22px 45px rgba(15,23,42,1);
+        backdrop-filter: blur(20px);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .sidebar-glass::before {
+        content:"";
+        position:absolute;
+        inset:-120%;
+        background:
+            repeating-linear-gradient(
+                135deg,
+                rgba(148,163,255,0.25) 0px,
+                rgba(148,163,255,0.25) 1px,
+                transparent 1px,
+                transparent 4px
+            );
+        mix-blend-mode:soft-light;
+        opacity:0.3;
+        animation: sb-scan 16s linear infinite;
+    }
+
+    .sidebar-glass::after {
+        content:"";
+        position:absolute;
+        inset:-15%;
+        background:
+            radial-gradient(circle at 0% 0%, rgba(56,189,248,0.4), transparent 60%),
+            radial-gradient(circle at 100% 100%, rgba(244,114,182,0.42), transparent 60%);
+        mix-blend-mode:screen;
+        opacity:0.2;
+        animation: sb-pulse 7s ease-in-out infinite;
+    }
+
+    @keyframes sb-scan {
+        0%   { transform: translate3d(-12%, -12%, 0); }
+        50%  { transform: translate3d(10%, 10%, 0); }
+        100% { transform: translate3d(-12%, -12%, 0); }
+    }
+
+    @keyframes sb-pulse {
+        0%,100% { opacity:0.18; }
+        50%     { opacity:0.32; }
+    }
+
+    .sidebar-content {
+        position:relative;
+        z-index:1;
+    }
+
+    .sb-title {
+        font-size:15px;
+        font-weight:700;
+        letter-spacing:0.22em;
+        text-transform:uppercase;
+        color:#e5f2ff;
+        text-align:center;
+        margin-bottom:4px;
+    }
+
+    .sb-subtitle {
+        font-size:10px;
+        letter-spacing:0.2em;
+        text-transform:uppercase;
+        text-align:center;
+        color:#9ca3af;
+        margin-bottom:12px;
+    }
+
+    /* Clock hologram */
+    #clock {
+        background: radial-gradient(circle at top, rgba(56,189,248,0.4), transparent 60%),
+                    rgba(15,23,42,0.96);
+        padding:10px 12px;
+        border-radius:16px;
+        text-align:center;
+        font-size:12px;
+        font-weight:600;
+        color:#e5f2ff;
+        border:1px solid rgba(56,189,248,0.7);
+        box-shadow:
+            0 0 14px rgba(56,189,248,0.8),
+            0 0 35px rgba(15,23,42,1);
+        margin-bottom:12px;
+    }
+
+    /* Radio label styling (navigation) */
+    div[data-baseweb="radio"] > div {
+        gap:6px;
+    }
+
+    div[data-baseweb="radio"] label {
+        width:100%;
+    }
+
+    div[data-baseweb="radio"] label > div {
+        border-radius:14px !important;
+        padding:6px 10px !important;
+        transition:all 0.22s ease;
+        border:1px solid transparent;
+        background:rgba(15,23,42,0.85);
+    }
+
+    /* Hover state */
+    div[data-baseweb="radio"] label > div:hover {
+        border-color:rgba(56,189,248,0.6);
+        box-shadow:0 0 12px rgba(56,189,248,0.65);
+        transform:translateX(2px);
+        background:linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,64,175,0.9));
+    }
+
+    /* Selected item */
+    div[data-baseweb="radio"] input[aria-checked="true"] + div {
+        border-color:rgba(94,234,212,0.9) !important;
+        box-shadow:
+            0 0 18px rgba(94,234,212,0.95),
+            0 0 40px rgba(15,23,42,1);
+        background:linear-gradient(135deg, rgba(16,185,129,0.18), rgba(59,130,246,0.36));
+        transform:translateX(3px);
+    }
+
+    /* Logged-in chip */
+    .user-chip {
+        margin-top:12px;
+        padding:8px 10px;
+        border-radius:14px;
+        background:rgba(15,23,42,0.9);
+        border:1px solid rgba(148,163,255,0.6);
+        font-size:11px;
+        color:#e5e7eb;
+    }
+
+    .user-chip span {
+        font-size:10px;
+        text-transform:uppercase;
+        letter-spacing:0.18em;
+        color:#9ca3af;
+    }
+
+    /* Logout button shock */
+    .stButton button[kind="secondary"] {
+        width:100%;
+        border-radius:999px;
+        border:1px solid rgba(248,113,113,0.8);
+        background:radial-gradient(circle at 0 0, rgba(248,113,113,0.45), transparent 55%),
+                   rgba(30,64,175,0.9);
+        color:#fee2e2;
+        font-weight:600;
+        box-shadow:0 0 14px rgba(248,113,113,0.9);
+        transition:all 0.23s ease;
+    }
+
+    .stButton button[kind="secondary"]:hover {
+        box-shadow:
+            0 0 26px rgba(248,113,113,1),
+            0 0 60px rgba(15,23,42,1);
+        transform:translateY(-1px) scale(1.02);
+    }
+
+    .stButton button[kind="secondary"]:active {
+        transform:scale(0.97);
+        box-shadow:0 0 40px rgba(248,113,113,1);
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # ========================= LIVE CLOCK (HOLOGRAPHIC) =========================
     def live_clock_js():
-        st.markdown(
+        st.sidebar.markdown(
             """
-        <div id="clock" style="
-            background:#3d5960;
-            padding:18px;
-            border-radius:20px;
-            text-align:center;
-            font-size:20px;
-            font-weight:bold;
-            color:white;">
-        </div>
+        <div id="clock">Loading time...</div>
 
         <script>
         function updateClock() {
             const now = new Date();
 
             const options = {
-                weekday: 'long',
+                weekday: 'short',
                 year: 'numeric',
-                month: 'long',
-                day: 'numeric'
+                month: 'short',
+                day: '2-digit'
             };
 
             const date = now.toLocaleDateString('en-US', options);
-            const time = now.toLocaleTimeString();
+            const time = now.toLocaleTimeString('en-US', { hour12: true });
 
-            document.getElementById('clock').innerHTML = date + " | " + time;
+            document.getElementById('clock').innerHTML =
+                date.toUpperCase() + " · " + time;
         }
 
         setInterval(updateClock, 1000);
@@ -2585,28 +2769,59 @@ def dashboard():
             unsafe_allow_html=True,
         )
 
-    live_clock_js()
+    # ========================= SIDEBAR CONTENT =========================
+    with st.sidebar:
+        st.markdown('<div class="sidebar-glass"><div class="sidebar-content">', unsafe_allow_html=True)
+        st.markdown('<div class="sb-title">COMPLIANCE HUB</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-subtitle">HOLOGRAPHIC NAVIGATION MATRIX</div>', unsafe_allow_html=True)
 
-    st.sidebar.title("📊 Compliance Menu")
+        live_clock_js()
 
-    menu = st.sidebar.radio(
-        "Navigation",
-        [
-            "Dashboard",
-            "ATP Certificates",
-            "Secretary Certificates",
-            "BIR 1906",
-            "Business Permits",
-            "Board Resolutions",
-            "BOA Stickers",
-            "Fire Safety",
-            "TIN & Address",
-            "Tax Mapped",
-            "AI Compliance Copilot",
-            "Admin Panel",
-        ],
-    )
+        menu = st.radio(
+            "Navigation",
+            [
+                "Dashboard",
+                "ATP Certificates",
+                "Secretary Certificates",
+                "BIR 1906",
+                "Business Permits",
+                "Board Resolutions",
+                "BOA Stickers",
+                "Fire Safety",
+                "TIN & Address",
+                "Tax Mapped",
+                "AI Compliance Copilot",
+                "Admin Panel",
+            ],
+            label_visibility="collapsed",
+        )
 
+        st.markdown(
+            f"""
+            <div class="user-chip">
+                <span>ACTIVE USER</span><br/>
+                👤 {st.session_state.get("user", "Unknown")}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+
+        if st.button("🚪 Logout", key="logout_btn"):
+            log_activity("SYSTEM", "LOGOUT")
+
+            # clear everything first
+            st.session_state.clear()
+            # then restore routing flags
+            st.session_state.logged_in = False
+            st.session_state.page = "login"
+
+            safe_rerun()
+
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+    # ========================= PAGE ROUTING & ACTIVITY LOG =========================
     if "current_page" not in st.session_state:
         st.session_state.current_page = menu
         log_activity(menu, "OPEN_PAGE")
@@ -2630,22 +2845,6 @@ def dashboard():
     }
 
     pages[menu]()
-
-    st.sidebar.divider()
-    st.sidebar.markdown(
-        f"""
-        👤 Logged in as:  
-        **{st.session_state.get("user", "Unknown")}**
-        """
-    )
-
-    if st.sidebar.button("🚪 Logout"):
-        log_activity("SYSTEM", "LOGOUT")
-        st.session_state.logged_in = False
-        st.session_state.page = "login"
-        st.session_state.clear()
-        safe_rerun()
-
 
 # ---------------------------------------------------
 # PAGE ROUTING (LOGIN SYSTEM)
