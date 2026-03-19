@@ -985,7 +985,8 @@ def fire_safety():
             "COMPANY",
             "AREA",
             "BRANCH",
-            "FSIC_VALIDITY",
+            "FSIC_CERTIFICATE_DATE",
+            "VALID_UNTIL",
             "FSIC_FEE",
             "REMARKS",
         ]
@@ -1017,8 +1018,8 @@ def fire_safety():
                 id_col="ID",
                 insert_sql="""
                     INSERT INTO FIRE_SAFETY
-                    (COMPANY,AREA,BRANCH,FSIC_VALIDITY,FSIC_FEE,REMARKS)
-                    VALUES (%s,%s,%s,%s,%s,%s)
+                    (COMPANY,AREA,BRANCH,FSIC_CERTIFICATE_DATE,VALID_UNTIL,FSIC_FEE,REMARKS)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
                     UPDATE FIRE_SAFETY
@@ -1026,7 +1027,8 @@ def fire_safety():
                         COMPANY=%s,
                         AREA=%s,
                         BRANCH=%s,
-                        FSIC_VALIDITY=%s,
+                        FSIC_CERTIFICATE_DATE=%s,
+                        VALID_UNTIL=%s,
                         FSIC_FEE=%s,
                         REMARKS=%s
                     WHERE ID=%s
@@ -1035,7 +1037,8 @@ def fire_safety():
                     "COMPANY",
                     "AREA",
                     "BRANCH",
-                    "FSIC_VALIDITY",
+                    "FSIC_CERTIFICATE_DATE",
+                    "VALID_UNTIL",
                     "FSIC_FEE",
                     "REMARKS",
                 ],
@@ -1043,7 +1046,8 @@ def fire_safety():
                     "COMPANY",
                     "AREA",
                     "BRANCH",
-                    "FSIC_VALIDITY",
+                    "FSIC_CERTIFICATE_DATE",
+                    "VALID_UNTIL",
                     "FSIC_FEE",
                     "REMARKS",
                 ],
@@ -1060,15 +1064,16 @@ def fire_safety():
                 table_name="FIRE_SAFETY",
                 insert_sql_with_id="""
                     INSERT INTO FIRE_SAFETY
-                    (ID,COMPANY,AREA,BRANCH,FSIC_VALIDITY,FSIC_FEE,REMARKS)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    (ID,COMPANY,AREA,BRANCH,FSIC_CERTIFICATE_DATE,VALID_UNTIL,FSIC_FEE,REMARKS)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
                     "ID",
                     "COMPANY",
                     "AREA",
                     "BRANCH",
-                    "FSIC_VALIDITY",
+                    "FSIC_CERTIFICATE_DATE",
+                    "VALID_UNTIL",
                     "FSIC_FEE",
                     "REMARKS",
                 ],
