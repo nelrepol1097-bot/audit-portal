@@ -1172,7 +1172,7 @@ def branch_tin_address():
         st.session_state.view_mode = "MAIN"
 
     # =========================
-    # MAIN (UNCHANGED LOGIC)
+    # MAIN
     # =========================
     if "company" in st.session_state:
         company = st.session_state.company
@@ -1197,7 +1197,7 @@ def branch_tin_address():
         df = load_data(company)
 
         # =========================
-        # 🟢 MAIN TABLE (UNCHANGED)
+        # 🟢 MAIN TABLE
         # =========================
         st.subheader(f"{company} Full Branch Table")
 
@@ -1209,6 +1209,16 @@ def branch_tin_address():
         )
 
         if st.button("💾 Save Changes (Main Table)"):
+            edited_df = edited_df.copy()
+
+            # 🔹 Force all rows to belong to the active company
+            edited_df["COMPANY"] = (
+                edited_df["COMPANY"]
+                .fillna(company)
+                .replace("", company)
+            )
+
+            # 🔹 Clean NaNs → None for DB
             edited_df = edited_df.where(pd.notnull(edited_df), None)
 
             handle_save_with_id(
