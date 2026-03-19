@@ -767,7 +767,7 @@ def ai_copilot():
 
         ATP_CERTIFICATES(COMPANY, AREA, BRANCH, STATUS)
 
-        FIRE_SAFETY(COMPANY, AREA, BRANCH, FSIC_VALIDITY, REMARKS)
+        FIRE_SAFETY(COMPANY, AREA, BRANCH, FSIC_CERTIFICATE_DATE,VALID_UNTIL,STATUS, REMARKS)
 
         BUSINESS_PERMIT(COMPANY, AREA, BRANCH, STATUS)
 
@@ -1004,7 +1004,7 @@ def fire_safety():
         use_container_width=True,
         key="fire_editor",
         column_config={
-            "FSIC_VALIDITY": st.column_config.DateColumn("FSIC Validity"),
+            "VALID_UNTIL": st.column_config.DateColumn("VALID_UNTIL"),
         },
     )
 
@@ -1982,7 +1982,7 @@ def board_resolutions():
         if st.button("🔄 Refresh", key="board_refresh"):
             st.session_state.board_orig = load_board()
             safe_rerun()
-
+            
 def dashboard_analytics():
 
     # ========================= UI =========================
@@ -2041,9 +2041,8 @@ def dashboard_analytics():
 
     df = load_data()
 
-    # ✅ normalize columns (CRITICAL FIX)
+    # normalize columns
     df.columns = df.columns.str.upper()
-
     today = datetime.today().date()
 
     # ========================= SAFE DEFAULT =========================
@@ -2056,29 +2055,24 @@ def dashboard_analytics():
 
     # ========================= SAFE BUILD =========================
     if not df.empty:
-
         df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors='coerce').dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors='coerce').dt.date
-
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
 
-        # SAFE SLA
         df["SLA"] = df["FINAL_DEADLINE"].apply(
             lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
 
-        # SAFE COLUMN ACCESS
         df["SEC_CERT"] = df.get("SEC_CERT", "")
         df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
 
-        # SAFE RISK
         df["RISK"] = (
             (df["SLA"] == "LATE") * 40 +
             (df["SEC_CERT"].fillna("") == "PENDING") * 30 +
             (df["GROSS_SALES_CERT"].isna()) * 30
         )
 
-    # ========================= KPI (NO ERROR VERSION) =========================
+    # ========================= KPI =========================
     if df.empty or "SLA" not in df.columns:
         total = late = high_risk = rate = 0
     else:
@@ -2087,134 +2081,97 @@ def dashboard_analytics():
         high_risk = len(df[df["RISK"] >= 70]) if "RISK" in df.columns else 0
         rate = ((total - late) / total * 100) if total else 0
 
-    # ========================= KPI CARDS =========================
     c1, c2, c3, c4 = st.columns(4)
-
     c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
-
-   # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
-   st.markdown('<div class="infographic">', unsafe_allow_html=True)
-
-   st.subheader("🏢 Business Permit Infographic Insight")
-
-if not df.empty:
-
-    # ========================= STATUS DISTRIBUTION =========================
-    st.markdown("### 📊 Compliance Status Distribution")
-
-    status_count = df["SLA"].value_counts().reset_index()
-    status_count.columns = ["STATUS", "COUNT"]
-
-    fig_status = px.pie(
-        status_count,
-        names="STATUS",
-        values="COUNT",
-        hole=0.6,
-        color="STATUS",
-        color_discrete_map={
-            "ON_TIME": "#00ffcc",
-            "LATE": "#ff4d4d"
-        }
-    )
-
-    fig_status.update_traces(textinfo="percent+label")
-    st.plotly_chart(fig_status, use_container_width=True)
-
-
-    # ========================= AREA PERFORMANCE =========================
-    st.markdown("### 🌍 Area Compliance Performance")
-
-    area_perf = df.groupby("AREA").agg(
-        TOTAL=("BRANCH", "count"),
-        LATE=("SLA", lambda x: (x == "LATE").sum())
-    ).reset_index()
-
-    area_perf["COMPLIANCE_RATE"] = (
-        (area_perf["TOTAL"] - area_perf["LATE"]) / area_perf["TOTAL"] * 100
-    )
-
-    fig_area = px.bar(
-        area_perf,
-        x="AREA",
-        y="COMPLIANCE_RATE",
-        text="COMPLIANCE_RATE",
-        color="COMPLIANCE_RATE",
-        color_continuous_scale="Blues"
-    )
-
-    fig_area.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-    st.plotly_chart(fig_area, use_container_width=True)
-
-
-    # ========================= RISK HEATMAP =========================
-    st.markdown("### 🔥 Risk Heatmap")
-
-    heatmap_df = df.pivot_table(
-        index="AREA",
-        columns="COMPANY",
-        values="RISK",
-        aggfunc="mean"
-    )
-
-    fig_heat = px.imshow(
-        heatmap_df,
-        text_auto=True,
-        color_continuous_scale="RdYlGn_r"
-    )
-
-    st.plotly_chart(fig_heat, use_container_width=True)
-
-
-    # ========================= TOP 5 RISK BRANCHES =========================
-    st.markdown("### ⚠️ Top 5 High Risk Branches")
-
-    top5 = df.sort_values("RISK", ascending=False).head(5)
-
-    st.dataframe(
-        top5[["COMPANY","AREA","BRANCH","RISK"]],
-        use_container_width=True
-    )
-
-
-    # ========================= EXECUTIVE INSIGHTS =========================
-    st.markdown("### 🧠 Executive Insights")
-
-    top_risk_area = area_perf.sort_values("LATE", ascending=False).iloc[0]["AREA"]
-    best_area = area_perf.sort_values("COMPLIANCE_RATE", ascending=False).iloc[0]["AREA"]
-
-    pending_sec = len(df[df["SEC_CERT"] == "PENDING"])
-    missing_gross = len(df[df["GROSS_SALES_CERT"].isna()])
-
-    st.success(f"""
-    📊 **Executive Summary**
-
-    • 🚨 Highest risk area: **{top_risk_area}**  
-    • 🏆 Best performing area: **{best_area}**  
-
-    • 📄 Pending SEC Certificates: **{pending_sec}**  
-    • 💰 Missing Gross Sales: **{missing_gross}**
-
-    ---
-    🎯 **AI Recommendations**
-
-    ✔ Prioritize compliance audit in **{top_risk_area}**  
-    ✔ Automate document tracking (SEC + Gross Sales)  
-    ✔ Deploy SLA alert system (early warning dashboard)  
-    ✔ Benchmark **{best_area}** for best practices  
-    """)
-
-else:
-    st.warning("No data available for Business Permit Insights")
-
-st.markdown('</div>', unsafe_allow_html=True)
-    # ========================= INFOGRAPHIC =========================
-    
+    # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
+    st.subheader("🏢 Business Permit Infographic Insight")
 
+    if not df.empty:
+        # STATUS DISTRIBUTION
+        st.markdown("### 📊 Compliance Status Distribution")
+        status_count = df["SLA"].value_counts().reset_index()
+        status_count.columns = ["STATUS", "COUNT"]
+
+        fig_status = px.pie(
+            status_count,
+            names="STATUS",
+            values="COUNT",
+            hole=0.6,
+            color="STATUS",
+            color_discrete_map={"ON_TIME": "#00ffcc", "LATE": "#ff4d4d"},
+        )
+        fig_status.update_traces(textinfo="percent+label")
+        st.plotly_chart(fig_status, use_container_width=True)
+
+        # AREA PERFORMANCE
+        st.markdown("### 🌍 Area Compliance Performance")
+        area_perf = df.groupby("AREA").agg(
+            TOTAL=("BRANCH", "count"),
+            LATE=("SLA", lambda x: (x == "LATE").sum())
+        ).reset_index()
+        area_perf["COMPLIANCE_RATE"] = (
+            (area_perf["TOTAL"] - area_perf["LATE"]) / area_perf["TOTAL"] * 100
+        )
+
+        fig_area = px.bar(
+            area_perf,
+            x="AREA",
+            y="COMPLIANCE_RATE",
+            text="COMPLIANCE_RATE",
+            color="COMPLIANCE_RATE",
+            color_continuous_scale="Blues",
+        )
+        fig_area.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        st.plotly_chart(fig_area, use_container_width=True)
+
+        # RISK HEATMAP
+        st.markdown("### 🔥 Risk Heatmap")
+        heatmap_df = df.pivot_table(
+            index="AREA",
+            columns="COMPANY",
+            values="RISK",
+            aggfunc="mean",
+        )
+        fig_heat = px.imshow(
+            heatmap_df,
+            text_auto=True,
+            color_continuous_scale="RdYlGn_r",
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+        # TOP 5 RISK BRANCHES
+        st.markdown("### ⚠️ Top 5 High Risk Branches")
+        top5 = df.sort_values("RISK", ascending=False).head(5)
+        st.dataframe(top5[["COMPANY","AREA","BRANCH","RISK"]], use_container_width=True)
+
+        # EXECUTIVE INSIGHTS
+        st.markdown("### 🧠 Executive Insights")
+        top_risk_area = area_perf.sort_values("LATE", ascending=False).iloc[0]["AREA"]
+        best_area = area_perf.sort_values("COMPLIANCE_RATE", ascending=False).iloc[0]["AREA"]
+        pending_sec = len(df[df["SEC_CERT"] == "PENDING"])
+        missing_gross = len(df[df["GROSS_SALES_CERT"].isna()])
+
+        st.success(f"""
+        📊 **Executive Summary**
+
+        • 🚨 Highest risk area: **{top_risk_area}**  
+        • 🏆 Best performing area: **{best_area}**  
+
+        • 📄 Pending SEC Certificates: **{pending_sec}**  
+        • 💰 Missing Gross Sales: **{missing_gross}**
+        """)
+    else:
+        st.warning("No data available for Business Permit Insights")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ========================= INFOGRAPHIC METRICS =========================
+    st.markdown('<div class="infographic">', unsafe_allow_html=True)
     st.subheader("⚡ Executive Infographic Report")
 
     colA, colB, colC = st.columns(3)
@@ -2224,7 +2181,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 
     if total > 0:
         sla_rate = (late / total) * 100
-
         st.write(f"""
         • {total} total processed  
         • {late} delayed (**{sla_rate:.1f}% SLA breach**)  
@@ -2242,61 +2198,49 @@ st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= AI PREDICTION =========================
     st.subheader("🔮 SLA Prediction")
-
     if not df.empty:
         df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
         pred = df[df["PREDICTED_LATE"]]
-
         st.metric("Predicted Late", len(pred))
         if not pred.empty:
             st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
 
     # ========================= TREND =========================
     st.subheader("📈 SLA Trend")
-
     if not df.empty:
         trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
         st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
 
     # ========================= FUTURISTIC GRAPH =========================
     st.subheader("🌌 AI Risk Intelligence")
-
     if not df.empty:
         futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
-
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
             mode='lines+markers'
         ))
-
         fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
 
     # ========================= WATERFALL =========================
     st.subheader("🌊 Risk Breakdown")
-
     pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
     missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
-
     fig2 = go.Figure(go.Waterfall(
         x=["Late","Pending","Missing","Total"],
         y=[late, pending, missing, total]
     ))
-
     st.plotly_chart(fig2, use_container_width=True)
 
     # ========================= AREA =========================
     st.subheader("🌍 Area Analysis")
-
     if not df.empty:
         area_df = df.groupby("AREA").size().reset_index(name="COUNT")
         fig_bar = px.bar(area_df, x="AREA", y="COUNT")
-
         selected = plotly_events(fig_bar, click_event=True)
         st.plotly_chart(fig_bar, use_container_width=True)
-
         if selected:
             st.dataframe(df[df["AREA"] == selected[0]["x"]])
 
