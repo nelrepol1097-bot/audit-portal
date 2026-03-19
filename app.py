@@ -2020,6 +2020,64 @@ def dashboard_analytics():
         box-shadow: 0 0 30px rgba(0,255,255,0.2);
         margin-top:20px;
     }
+
+    /* Futuristic shock-effect panel for key graphs */
+    .futuristic-panel {
+        background: radial-gradient(circle at top, rgba(0,255,255,0.12), transparent 55%),
+                    radial-gradient(circle at bottom, rgba(255,0,150,0.12), transparent 55%),
+                    rgba(10,20,40,0.95);
+        border-radius: 20px;
+        padding: 18px;
+        box-shadow:
+            0 0 20px rgba(0,255,255,0.6),
+            0 0 60px rgba(255,0,150,0.4);
+        position: relative;
+        overflow: hidden;
+        margin-top: 16px;
+    }
+
+    .futuristic-panel::before {
+        content: "";
+        position: absolute;
+        top: -150%;
+        left: 0;
+        width: 100%;
+        height: 300%;
+        background: repeating-linear-gradient(
+            to bottom,
+            rgba(255,255,255,0.06),
+            rgba(255,255,255,0.06) 1px,
+            transparent 1px,
+            transparent 3px
+        );
+        mix-blend-mode: soft-light;
+        animation: scan 6s linear infinite;
+        pointer-events: none;
+    }
+
+    .futuristic-panel::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 20px;
+        border: 1px solid rgba(0,255,255,0.7);
+        box-shadow: 0 0 30px rgba(0,255,255,0.9);
+        opacity: 0.0;
+        animation: shock 2.7s ease-out infinite;
+        pointer-events: none;
+    }
+
+    @keyframes scan {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(-33%); }
+    }
+
+    @keyframes shock {
+        0%, 80%   { opacity: 0; transform: scale(1); }
+        82%       { opacity: 1; transform: scale(1.02); }
+        88%       { opacity: 0.5; transform: scale(0.99); }
+        100%      { opacity: 0; transform: scale(1); }
+    }
     </style>
 
     <div class="title-glow">⚡ COMPLIANCE COMMAND CENTER ⚡</div>
@@ -2196,6 +2254,12 @@ def dashboard_analytics():
             barmode="group",
             title="Status by Module",
         )
+        fig_status_mod.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#00f7ff"),
+        )
         st.plotly_chart(fig_status_mod, use_container_width=True)
     else:
         st.info("No status data available for the selected modules.")
@@ -2221,6 +2285,11 @@ def dashboard_analytics():
             color_discrete_map={"ON_TIME": "#00ffcc", "LATE": "#ff4d4d"},
         )
         fig_status.update_traces(textinfo="percent+label")
+        fig_status.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
         st.plotly_chart(fig_status, use_container_width=True)
 
         # AREA PERFORMANCE
@@ -2242,6 +2311,11 @@ def dashboard_analytics():
             color_continuous_scale="Blues",
         )
         fig_area.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_area.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
         st.plotly_chart(fig_area, use_container_width=True)
 
         # RISK HEATMAP
@@ -2256,6 +2330,11 @@ def dashboard_analytics():
             heatmap_df,
             text_auto=True,
             color_continuous_scale="RdYlGn_r",
+        )
+        fig_heat.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
         )
         st.plotly_chart(fig_heat, use_container_width=True)
 
@@ -2312,6 +2391,7 @@ def dashboard_analytics():
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= AI PREDICTION =========================
+    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
     st.subheader("🔮 SLA Prediction")
     if not df.empty:
         df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
@@ -2319,27 +2399,59 @@ def dashboard_analytics():
         st.metric("Predicted Late", len(pred))
         if not pred.empty:
             st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= TREND =========================
+    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
     st.subheader("📈 SLA Trend")
     if not df.empty:
         trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-        st.plotly_chart(px.line(trend, x="FINAL_DEADLINE", y="COUNT"), use_container_width=True)
+        fig_trend = px.line(trend, x="FINAL_DEADLINE", y="COUNT")
+        fig_trend.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= FUTURISTIC GRAPH =========================
+    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
     st.subheader("🌌 AI Risk Intelligence")
     if not df.empty:
         futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
+
         fig = go.Figure()
+        # glow layer
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
-            mode='lines+markers'
+            mode='lines',
+            line=dict(color="rgba(0,255,255,0.35)", width=10),
+            hoverinfo="skip",
+            showlegend=False,
         ))
-        fig.update_layout(template="plotly_dark")
+        # main line
+        fig.add_trace(go.Scatter(
+            x=futuristic_df["FINAL_DEADLINE"],
+            y=futuristic_df["RISK"],
+            mode='lines+markers',
+            line=dict(color="#00ffff", width=4),
+            marker=dict(size=8, color="#ff00ff"),
+            name="Avg Risk",
+        ))
+
+        fig.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#00f7ff"),
+        )
         st.plotly_chart(fig, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= WATERFALL =========================
+    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
     st.subheader("🌊 Risk Breakdown")
     pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
     missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
@@ -2347,17 +2459,30 @@ def dashboard_analytics():
         x=["Late","Pending","Missing","Total"],
         y=[late, pending, missing, total]
     ))
+    fig2.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
     st.plotly_chart(fig2, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= AREA =========================
+    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
     st.subheader("🌍 Area Analysis")
     if not df.empty:
         area_df = df.groupby("AREA").size().reset_index(name="COUNT")
         fig_bar = px.bar(area_df, x="AREA", y="COUNT")
+        fig_bar.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
         selected = plotly_events(fig_bar, click_event=True)
         st.plotly_chart(fig_bar, use_container_width=True)
         if selected:
             st.dataframe(df[df["AREA"] == selected[0]["x"]])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= TABLE =========================
     st.subheader("📋 Data")
