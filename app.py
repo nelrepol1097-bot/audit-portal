@@ -337,8 +337,6 @@ def send_alert(message):
 # ---------------------------------------------------
 # LOGIN PAGE
 # ---------------------------------------------------
-
-
 def login():
     conn, cursor = get_cursor()
 
@@ -357,11 +355,8 @@ def login():
         email = st.text_input("Email")
         password_input = st.text_input("Password", type="password")
 
-           st.session_state.logged_in = True
-           st.session_state.user = email
-           st.session_state.page = "dashboard"   # ✅ ADD THIS
-
-           safe_rerun()   # ✅ ADD THIS
+        # ✅ BUTTON MUST WRAP EVERYTHING
+        if st.button("Login"):
 
             query = """
             SELECT STATUS
@@ -376,6 +371,7 @@ def login():
 
                 if status == "APPROVED":
                     login_time = datetime.now()
+
                     cursor.execute(
                         """
                         INSERT INTO LOGIN_HISTORY
@@ -385,9 +381,15 @@ def login():
                         (email, login_time),
                     )
                     conn.commit()
+
+                    # ✅ CORRECT PLACEMENT
                     st.session_state.logged_in = True
                     st.session_state.user = email
+                    st.session_state.page = "dashboard"
+
                     st.success("Login Successful")
+
+                    safe_rerun()  # ✅ redirect immediately
 
                 elif status == "PENDING":
                     st.warning("Your account is waiting for admin approval.")
@@ -399,13 +401,12 @@ def login():
 
         st.divider()
 
-           if st.button("Create Account"):
-           st.session_state.page = "register"
-           safe_rerun()   # ✅ ADD THIS
+        # ✅ FIX INDENTATION HERE ALSO
+        if st.button("Create Account"):
+            st.session_state.page = "register"
+            safe_rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-
 # ---------------------------------------------------
 # REGISTER PAGE
 # ---------------------------------------------------
