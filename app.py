@@ -2095,15 +2095,15 @@ def dashboard_analytics():
             """
             SELECT
                 'SECRETARY_CERTIFICATES' AS MODULE,
-                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+                SUM(CASE WHEN UPPER(FINAL_STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
                 SUM(
                     CASE
-                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
-                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
+                        WHEN FINAL_STATUS IS NULL OR TRIM(FINAL_STATUS) = '' THEN 1
+                        WHEN UPPER(FINAL_STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE) THEN 1
                         ELSE 0
                     END
                 ) AS PENDING
-            FROM SECRETARY_CERTIFICATES
+            FROM SECRETARY_CERTIFICATE
 
             UNION ALL
 
