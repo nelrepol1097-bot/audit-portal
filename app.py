@@ -2182,7 +2182,7 @@ if not df.empty:
 else:
     st.warning("No data available for Business Permit Insights")
 
-st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     # ========================= INFOGRAPHIC =========================
     
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
