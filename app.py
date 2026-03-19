@@ -2088,7 +2088,7 @@ def dashboard_analytics():
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
     # ========================= GLOBAL DONE / PENDING KPI ACROSS MODULES =========================
-    @st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_status_kpis_local():
     conn, cursor = get_cursor()
     cursor.execute(
