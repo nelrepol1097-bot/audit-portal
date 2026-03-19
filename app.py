@@ -2096,7 +2096,7 @@ def dashboard_analytics():
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
 
-    # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
+   # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
 st.markdown('<div class="infographic">', unsafe_allow_html=True)
 
 st.subheader("🏢 Business Permit Infographic Insight")
@@ -2113,10 +2113,17 @@ if not df.empty:
         status_count,
         names="STATUS",
         values="COUNT",
-        hole=0.5
+        hole=0.6,
+        color="STATUS",
+        color_discrete_map={
+            "ON_TIME": "#00ffcc",
+            "LATE": "#ff4d4d"
+        }
     )
 
+    fig_status.update_traces(textinfo="percent+label")
     st.plotly_chart(fig_status, use_container_width=True)
+
 
     # ========================= AREA PERFORMANCE =========================
     st.markdown("### 🌍 Area Compliance Performance")
@@ -2134,10 +2141,14 @@ if not df.empty:
         area_perf,
         x="AREA",
         y="COMPLIANCE_RATE",
-        text="COMPLIANCE_RATE"
+        text="COMPLIANCE_RATE",
+        color="COMPLIANCE_RATE",
+        color_continuous_scale="Blues"
     )
 
+    fig_area.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
     st.plotly_chart(fig_area, use_container_width=True)
+
 
     # ========================= RISK HEATMAP =========================
     st.markdown("### 🔥 Risk Heatmap")
@@ -2149,8 +2160,25 @@ if not df.empty:
         aggfunc="mean"
     )
 
-    fig_heat = px.imshow(heatmap_df, text_auto=True, aspect="auto")
+    fig_heat = px.imshow(
+        heatmap_df,
+        text_auto=True,
+        color_continuous_scale="RdYlGn_r"
+    )
+
     st.plotly_chart(fig_heat, use_container_width=True)
+
+
+    # ========================= TOP 5 RISK BRANCHES =========================
+    st.markdown("### ⚠️ Top 5 High Risk Branches")
+
+    top5 = df.sort_values("RISK", ascending=False).head(5)
+
+    st.dataframe(
+        top5[["COMPANY","AREA","BRANCH","RISK"]],
+        use_container_width=True
+    )
+
 
     # ========================= EXECUTIVE INSIGHTS =========================
     st.markdown("### 🧠 Executive Insights")
@@ -2161,28 +2189,28 @@ if not df.empty:
     pending_sec = len(df[df["SEC_CERT"] == "PENDING"])
     missing_gross = len(df[df["GROSS_SALES_CERT"].isna()])
 
-    st.info(f"""
-    🔎 **Key Findings:**
-    - Highest delay concentration is in **{top_risk_area}**
-    - Best performing area is **{best_area}**
-    - {pending_sec} branches still have **pending SEC Certificates**
-    - {missing_gross} branches have **missing Gross Sales data**
+    st.success(f"""
+    📊 **Executive Summary**
 
-    📊 **Interpretation:**
-    - Delays are likely driven by incomplete documentation (SEC + Gross Sales)
-    - Areas with high delay should be prioritized for compliance intervention
-    - Strong areas can be used as benchmarking models
+    • 🚨 Highest risk area: **{top_risk_area}**  
+    • 🏆 Best performing area: **{best_area}**  
 
-    🚀 **Recommended Actions:**
-    - Focus compliance audit on **{top_risk_area}**
-    - Automate SEC & Gross Sales tracking
-    - Implement early warning alerts for deadlines
+    • 📄 Pending SEC Certificates: **{pending_sec}**  
+    • 💰 Missing Gross Sales: **{missing_gross}**
+
+    ---
+    🎯 **AI Recommendations**
+
+    ✔ Prioritize compliance audit in **{top_risk_area}**  
+    ✔ Automate document tracking (SEC + Gross Sales)  
+    ✔ Deploy SLA alert system (early warning dashboard)  
+    ✔ Benchmark **{best_area}** for best practices  
     """)
 
 else:
     st.warning("No data available for Business Permit Insights")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
     # ========================= INFOGRAPHIC =========================
     
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
