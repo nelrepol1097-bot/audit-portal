@@ -1985,105 +1985,171 @@ def board_resolutions():
             
 def dashboard_analytics():
 
-    # ========================= UI =========================
+    # ========================= HOLOGRAPHIC UI =========================
     st.markdown("""
     <style>
-    body {background: linear-gradient(135deg,#0f172a,#020617);}
+    body {
+        background: radial-gradient(circle at top, #0f172a, #020617 55%);
+    }
 
     .title-glow {
         text-align:center;
-        font-size:34px;
-        color:#00f7ff;
-        text-shadow: 0 0 20px #00f7ff, 0 0 60px #00f7ff;
+        font-size:36px;
+        color:#7af9ff;
+        letter-spacing:0.18em;
+        text-shadow:
+            0 0 10px #7af9ff,
+            0 0 30px #3b82f6,
+            0 0 60px #a855f7;
+        margin-bottom:8px;
+    }
+
+    .subtitle-chip {
+        text-align:center;
+        font-size:14px;
+        color:#cbd5f5;
+        text-transform:uppercase;
+        letter-spacing:0.25em;
+        opacity:0.8;
+        margin-bottom:26px;
     }
 
     .kpi-card {
-        background: rgba(255,255,255,0.05);
-        backdrop-filter: blur(12px);
-        padding:20px;
-        border-radius:15px;
-        text-align:center;
-        transition:0.3s;
-        border:1px solid rgba(0,255,255,0.2);
+        background: linear-gradient(135deg, rgba(15,23,42,0.85), rgba(24,35,70,0.95));
+        border-radius:18px;
+        padding:16px 18px;
+        border:1px solid rgba(148,163,255,0.4);
+        box-shadow:
+            0 0 0 1px rgba(15,118,255,0.2),
+            0 18px 35px rgba(15,23,42,0.9);
+        backdrop-filter: blur(18px);
+        transition: all 0.28s ease;
     }
 
     .kpi-card:hover {
-        transform: scale(1.08);
-        box-shadow: 0 0 40px cyan;
-    }
-
-    .infographic {
-        background: rgba(0,255,255,0.05);
-        border-radius:20px;
-        padding:20px;
-        backdrop-filter: blur(15px);
-        box-shadow: 0 0 30px rgba(0,255,255,0.2);
-        margin-top:20px;
-    }
-
-    /* Futuristic shock-effect panel for key graphs */
-    .futuristic-panel {
-        background: radial-gradient(circle at top, rgba(0,255,255,0.12), transparent 55%),
-                    radial-gradient(circle at bottom, rgba(255,0,150,0.12), transparent 55%),
-                    rgba(10,20,40,0.95);
-        border-radius: 20px;
-        padding: 18px;
+        transform: translateY(-4px) scale(1.02);
         box-shadow:
-            0 0 20px rgba(0,255,255,0.6),
-            0 0 60px rgba(255,0,150,0.4);
-        position: relative;
-        overflow: hidden;
-        margin-top: 16px;
+            0 0 22px rgba(56,189,248,0.7),
+            0 24px 60px rgba(15,23,42,1);
     }
 
-    .futuristic-panel::before {
-        content: "";
-        position: absolute;
-        top: -150%;
-        left: 0;
-        width: 100%;
-        height: 300%;
-        background: repeating-linear-gradient(
-            to bottom,
-            rgba(255,255,255,0.06),
-            rgba(255,255,255,0.06) 1px,
-            transparent 1px,
-            transparent 3px
-        );
-        mix-blend-mode: soft-light;
-        animation: scan 6s linear infinite;
-        pointer-events: none;
+    .kpi-label {
+        font-size:13px;
+        text-transform:uppercase;
+        letter-spacing:0.18em;
+        color:#93c5fd;
     }
 
-    .futuristic-panel::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        border-radius: 20px;
-        border: 1px solid rgba(0,255,255,0.7);
-        box-shadow: 0 0 30px rgba(0,255,255,0.9);
-        opacity: 0.0;
-        animation: shock 2.7s ease-out infinite;
-        pointer-events: none;
+    .kpi-value {
+        font-size:30px;
+        font-weight:700;
+        color:#e5f2ff;
+        margin-top:4px;
     }
 
-    @keyframes scan {
-        0% { transform: translateY(0); }
-        100% { transform: translateY(-33%); }
+    .kpi-caption {
+        font-size:11px;
+        color:#9ca3af;
+        margin-top:6px;
     }
 
-    @keyframes shock {
-        0%, 80%   { opacity: 0; transform: scale(1); }
-        82%       { opacity: 1; transform: scale(1.02); }
-        88%       { opacity: 0.5; transform: scale(0.99); }
-        100%      { opacity: 0; transform: scale(1); }
+    .holo-panel {
+        background: radial-gradient(circle at top left, rgba(56,189,248,0.22), transparent 60%),
+                    radial-gradient(circle at bottom right, rgba(129,140,248,0.22), transparent 60%),
+                    rgba(15,23,42,0.92);
+        border-radius:22px;
+        padding:18px 20px;
+        margin-top:18px;
+        border:1px solid rgba(148,163,255,0.4);
+        box-shadow:
+            0 0 0 1px rgba(15,23,42,1),
+            0 28px 55px rgba(15,23,42,1);
+        backdrop-filter: blur(22px);
+        position:relative;
+        overflow:hidden;
+    }
+
+    .holo-panel::before {
+        content:"";
+        position:absolute;
+        inset:-120%;
+        background:
+            repeating-linear-gradient(
+                125deg,
+                rgba(148,163,255,0.22) 0px,
+                rgba(148,163,255,0.22) 1px,
+                transparent 1px,
+                transparent 4px
+            );
+        mix-blend-mode:soft-light;
+        opacity:0.3;
+        animation:holo-scan 14s linear infinite;
+    }
+
+    .holo-panel::after {
+        content:"";
+        position:absolute;
+        inset:-20%;
+        background:
+            radial-gradient(circle at 0% 0%, rgba(56,189,248,0.45), transparent 55%),
+            radial-gradient(circle at 100% 100%, rgba(244,114,182,0.45), transparent 55%);
+        mix-blend-mode:screen;
+        opacity:0.18;
+        animation:holo-pulse 6s ease-in-out infinite;
+    }
+
+    @keyframes holo-scan {
+        0%   { transform: translate3d(-10%, -10%, 0); }
+        50%  { transform: translate3d(10%, 10%, 0); }
+        100% { transform: translate3d(-10%, -10%, 0); }
+    }
+
+    @keyframes holo-pulse {
+        0%, 100% { opacity:0.18; }
+        50%      { opacity:0.35; }
+    }
+
+    .panel-header {
+        font-size:16px;
+        font-weight:600;
+        color:#e5e7eb;
+        display:flex;
+        align-items:center;
+        gap:8px;
+        margin-bottom:8px;
+        position:relative;
+        z-index:1;
+    }
+
+    .panel-header-pill {
+        width:8px;
+        height:8px;
+        border-radius:999px;
+        background:radial-gradient(circle, #22c1c3, #4e46e5);
+        box-shadow:0 0 12px rgba(34,193,195,0.85);
+    }
+
+    .panel-subtitle {
+        font-size:11px;
+        color:#9ca3af;
+        text-transform:uppercase;
+        letter-spacing:0.18em;
+        margin-bottom:10px;
+        position:relative;
+        z-index:1;
+    }
+
+    .panel-body {
+        position:relative;
+        z-index:1;
     }
     </style>
 
-    <div class="title-glow">⚡ COMPLIANCE COMMAND CENTER ⚡</div>
+    <div class="title-glow">COMPLIANCE COMMAND CENTER</div>
+    <div class="subtitle-chip">HOLOGRAPHIC EXECUTIVE INFOGRAPHIC</div>
     """, unsafe_allow_html=True)
 
-    st.title("📊 Compliance Executive Dashboard")
+    st.title("")
 
     # ========================= LOAD BUSINESS PERMIT DATA =========================
     @st.cache_data(ttl=60)
@@ -2098,39 +2164,32 @@ def dashboard_analytics():
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     df = load_bp_data()
-
-    # normalize columns
     df.columns = df.columns.str.upper()
     today = datetime.today().date()
 
-    # ========================= SAFE DEFAULT =========================
+    # ========================= SAFE DEFAULT / BUILD =========================
     if df.empty:
         df = pd.DataFrame(columns=[
             "COMPANY","AREA","BRANCH",
             "FINAL_DEADLINE","SLA","RISK",
             "SEC_CERT","GROSS_SALES_CERT"
         ])
-
-    # ========================= SAFE BUILD =========================
-    if not df.empty:
+    else:
         df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors='coerce').dt.date
         df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors='coerce').dt.date
         df["FINAL_DEADLINE"] = df["DEADLINE_EXTENSION"].fillna(df["DEADLINE"])
-
         df["SLA"] = df["FINAL_DEADLINE"].apply(
             lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
         )
-
         df["SEC_CERT"] = df.get("SEC_CERT", "")
         df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
-
         df["RISK"] = (
             (df["SLA"] == "LATE") * 40 +
             (df["SEC_CERT"].fillna("") == "PENDING") * 30 +
             (df["GROSS_SALES_CERT"].isna()) * 30
         )
 
-    # ========================= KPI =========================
+    # ========================= TOP KPIs =========================
     if df.empty or "SLA" not in df.columns:
         total = late = high_risk = rate = 0
     else:
@@ -2140,10 +2199,30 @@ def dashboard_analytics():
         rate = ((total - late) / total * 100) if total else 0
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(f'<div class="kpi-card"><h2>{total}</h2><p>Total</p></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="kpi-card"><h2>{rate:.1f}%</h2><p>On-Time</p></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
+    with c1:
+        st.markdown('<div class="kpi-card">', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-label">Total Branches</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-value">{total}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-caption">Tracked in Business Permit Overview</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="kpi-card">', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-label">On-Time Rate</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-value">{rate:.1f}%</div>', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-caption">Branches still within compliance SLA</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="kpi-card">', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-label">Late Branches</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-value">{late}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-caption">Past final deadline as of today</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown('<div class="kpi-card">', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-label">High Risk</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-value">{high_risk}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="kpi-caption">Composite risk ≥ 70 points</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ========================= GLOBAL DONE / PENDING KPI ACROSS MODULES =========================
     @st.cache_data(ttl=60, show_spinner=False)
@@ -2225,8 +2304,10 @@ def dashboard_analytics():
 
     status_df = load_status_kpis_local()
 
-    st.markdown('<div class="infographic">', unsafe_allow_html=True)
-    st.subheader("✅ DONE vs Pending by Module")
+    st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>Cross‑Module Progress</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">DONE vs PENDING / IN PROCESS / NOT YET DONE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not status_df.empty:
         total_done = int(status_df["DONE"].sum())
@@ -2236,10 +2317,8 @@ def dashboard_analytics():
 
         k1, k2, k3 = st.columns(3)
         k1.metric("Total DONE", total_done)
-        k2.metric("Pending / In-Process / Blank", total_pending)
+        k2.metric("Pending / In‑Process / Blank", total_pending)
         k3.metric("Overall Completion Rate", f"{completion_rate:.1f}%")
-
-        st.dataframe(status_df, use_container_width=True)
 
         fig_status_mod = px.bar(
             status_df.melt(
@@ -2252,27 +2331,35 @@ def dashboard_analytics():
             y="COUNT",
             color="STATE",
             barmode="group",
-            title="Status by Module",
         )
         fig_status_mod.update_layout(
+            title=None,
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#00f7ff"),
+            font=dict(color="#e5e7eb"),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
         )
         st.plotly_chart(fig_status_mod, use_container_width=True)
     else:
         st.info("No status data available for the selected modules.")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
     # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
-    st.markdown('<div class="infographic">', unsafe_allow_html=True)
-    st.subheader("🏢 Business Permit Infographic Insight")
+    st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>Business Permit Health</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">SLA STATUS · AREA PERFORMANCE · RISK MAP</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not df.empty:
-        # STATUS DISTRIBUTION
-        st.markdown("### 📊 Compliance Status Distribution")
+        # Status distribution
         status_count = df["SLA"].value_counts().reset_index()
         status_count.columns = ["STATUS", "COUNT"]
 
@@ -2282,18 +2369,17 @@ def dashboard_analytics():
             values="COUNT",
             hole=0.6,
             color="STATUS",
-            color_discrete_map={"ON_TIME": "#00ffcc", "LATE": "#ff4d4d"},
+            color_discrete_map={"ON_TIME": "#22c55e", "LATE": "#f97316"},
         )
         fig_status.update_traces(textinfo="percent+label")
         fig_status.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False,
         )
-        st.plotly_chart(fig_status, use_container_width=True)
 
-        # AREA PERFORMANCE
-        st.markdown("### 🌍 Area Compliance Performance")
+        # Area performance
         area_perf = df.groupby("AREA").agg(
             TOTAL=("BRANCH", "count"),
             LATE=("SLA", lambda x: (x == "LATE").sum())
@@ -2316,10 +2402,18 @@ def dashboard_analytics():
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
         )
-        st.plotly_chart(fig_area, use_container_width=True)
 
-        # RISK HEATMAP
-        st.markdown("### 🔥 Risk Heatmap")
+        # Layout: pie + bar + heatmap stacked visually
+        c_left, c_right = st.columns([1, 1.2])
+        with c_left:
+            st.markdown("##### SLA Distribution")
+            st.plotly_chart(fig_status, use_container_width=True)
+
+        with c_right:
+            st.markdown("##### Area Compliance Rate")
+            st.plotly_chart(fig_area, use_container_width=True)
+
+        st.markdown("##### Risk Heatmap")
         heatmap_df = df.pivot_table(
             index="AREA",
             columns="COMPANY",
@@ -2338,138 +2432,96 @@ def dashboard_analytics():
         )
         st.plotly_chart(fig_heat, use_container_width=True)
 
-        # TOP 5 RISK BRANCHES
-        st.markdown("### ⚠️ Top 5 High Risk Branches")
-        top5 = df.sort_values("RISK", ascending=False).head(5)
-        st.dataframe(top5[["COMPANY","AREA","BRANCH","RISK"]], use_container_width=True)
-
-        # EXECUTIVE INSIGHTS
-        st.markdown("### 🧠 Executive Insights")
-        top_risk_area = area_perf.sort_values("LATE", ascending=False).iloc[0]["AREA"]
-        best_area = area_perf.sort_values("COMPLIANCE_RATE", ascending=False).iloc[0]["AREA"]
-        pending_sec = len(df[df["SEC_CERT"] == "PENDING"])
-        missing_gross = len(df[df["GROSS_SALES_CERT"].isna()])
-
-        st.success(f"""
-        📊 **Executive Summary**
-
-        • 🚨 Highest risk area: **{top_risk_area}**  
-        • 🏆 Best performing area: **{best_area}**  
-
-        • 📄 Pending SEC Certificates: **{pending_sec}**  
-        • 💰 Missing Gross Sales: **{missing_gross}**
-        """)
     else:
         st.warning("No data available for Business Permit Insights")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
-    # ========================= INFOGRAPHIC METRICS =========================
-    st.markdown('<div class="infographic">', unsafe_allow_html=True)
-    st.subheader("⚡ Executive Infographic Report")
+    # ========================= AI RISK INTELLIGENCE & BREAKDOWN =========================
+    st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>AI Risk Intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">RISK TREND · PREDICTED LATE · BREAKDOWN</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
-    colA, colB, colC = st.columns(3)
-    colA.metric("Total", total)
-    colB.metric("Over SLA", late)
-    colC.metric("High Risk", high_risk)
-
-    if total > 0:
-        sla_rate = (late / total) * 100
-        st.write(f"""
-        • {total} total processed  
-        • {late} delayed (**{sla_rate:.1f}% SLA breach**)  
-        • {high_risk} high-risk detected  
-        """)
-
-        if sla_rate > 50:
-            st.error("🔴 Critical SLA failure")
-        elif sla_rate > 20:
-            st.warning("🟡 Moderate SLA risk")
-        else:
-            st.success("🟢 SLA stable")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ========================= AI PREDICTION =========================
-    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
-    st.subheader("🔮 SLA Prediction")
     if not df.empty:
+        # Predicted late table
         df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
         pred = df[df["PREDICTED_LATE"]]
-        st.metric("Predicted Late", len(pred))
-        if not pred.empty:
-            st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]])
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ========================= TREND =========================
-    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
-    st.subheader("📈 SLA Trend")
-    if not df.empty:
-        trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
-        fig_trend = px.line(trend, x="FINAL_DEADLINE", y="COUNT")
-        fig_trend.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-        st.plotly_chart(fig_trend, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        cA, cB = st.columns([1.1, 1.1])
 
-    # ========================= FUTURISTIC GRAPH =========================
-    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
-    st.subheader("🌌 AI Risk Intelligence")
-    if not df.empty:
+        with cA:
+            st.markdown("###### 🔮 Predicted Late Branches")
+            st.metric("Predicted Late", len(pred))
+            if not pred.empty:
+                st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]], use_container_width=True, height=210)
+
+        with cB:
+            st.markdown("###### 📈 Risk Trend")
+            trend = df.groupby("FINAL_DEADLINE").size().reset_index(name="COUNT")
+            fig_trend = px.line(trend, x="FINAL_DEADLINE", y="COUNT")
+            fig_trend.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+
+        # Futuristic average risk line
+        st.markdown("###### 🌌 Average Risk Over Time")
         futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
-
         fig = go.Figure()
-        # glow layer
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
             mode='lines',
-            line=dict(color="rgba(0,255,255,0.35)", width=10),
+            line=dict(color="rgba(56,189,248,0.4)", width=10),
             hoverinfo="skip",
             showlegend=False,
         ))
-        # main line
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
             mode='lines+markers',
-            line=dict(color="#00ffff", width=4),
-            marker=dict(size=8, color="#ff00ff"),
+            line=dict(color="#38bdf8", width=3),
+            marker=dict(size=7, color="#f97316"),
             name="Avg Risk",
         ))
-
         fig.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#00f7ff"),
+            font=dict(color="#e5e7eb"),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # Waterfall breakdown
+        st.markdown("###### 🌊 Risk Component Breakdown")
+        pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
+        missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
+        fig2 = go.Figure(go.Waterfall(
+            name="Risk",
+            orientation="v",
+            x=["Late","Pending SEC","Missing Gross Sales","Total"],
+            y=[late, pending, missing, total]
+        ))
+        fig2.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("No data available for AI risk intelligence.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ========================= WATERFALL =========================
-    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
-    st.subheader("🌊 Risk Breakdown")
-    pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
-    missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
-    fig2 = go.Figure(go.Waterfall(
-        x=["Late","Pending","Missing","Total"],
-        y=[late, pending, missing, total]
-    ))
-    fig2.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-    )
-    st.plotly_chart(fig2, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # ========================= AREA DRILLDOWN =========================
+    st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-header"><div class="panel-header-pill"></div>Area Drilldown</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">CLICK AN AREA TO SEE BRANCH DETAILS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
-    # ========================= AREA =========================
-    st.markdown('<div class="futuristic-panel">', unsafe_allow_html=True)
-    st.subheader("🌍 Area Analysis")
     if not df.empty:
         area_df = df.groupby("AREA").size().reset_index(name="COUNT")
         fig_bar = px.bar(area_df, x="AREA", y="COUNT")
@@ -2480,12 +2532,17 @@ def dashboard_analytics():
         )
         selected = plotly_events(fig_bar, click_event=True)
         st.plotly_chart(fig_bar, use_container_width=True)
+
         if selected:
-            st.dataframe(df[df["AREA"] == selected[0]["x"]])
+            st.markdown("###### Selected Area Detail")
+            st.dataframe(df[df["AREA"] == selected[0]["x"]], use_container_width=True)
+    else:
+        st.info("No area level data available.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ========================= TABLE =========================
-    st.subheader("📋 Data")
+    # ========================= RAW DATA =========================
+    st.subheader("📋 Underlying Data View")
     st.dataframe(df, use_container_width=True)
 # ---------------------------------------------------
 # MAIN DASHBOARD PAGE (sidebar navigation)
