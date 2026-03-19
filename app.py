@@ -2090,80 +2090,80 @@ def dashboard_analytics():
     # ========================= GLOBAL DONE / PENDING KPI ACROSS MODULES =========================
     @st.cache_data(ttl=60, show_spinner=False)
     def load_status_kpis_local():
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT
-                'SECRETARY_CERTIFICATES' AS MODULE,
-                SUM(CASE WHEN UPPER(FINAL_STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
-                SUM(
-                    CASE
-                        WHEN FINAL_STATUS IS NULL OR TRIM(FINAL_STATUS) = '' THEN 1
-                        WHEN UPPER(FINAL_STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
-                        ELSE 0
-                    END
-                ) AS PENDING
-            FROM SECRETARY_CERTIFICATES
+    conn, cursor = get_cursor()
+    cursor.execute(
+        """
+        SELECT
+            'SECRETARY_CERTIFICATES' AS MODULE,
+            SUM(CASE WHEN UPPER(FINAL_STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+            SUM(
+                CASE
+                    WHEN FINAL_STATUS IS NULL OR TRIM(FINAL_STATUS) = '' THEN 1
+                    WHEN UPPER(FINAL_STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE') THEN 1
+                    ELSE 0
+                END
+            ) AS PENDING
+        FROM SECRETARY_CERTIFICATES
 
-            UNION ALL
+        UNION ALL
 
-            SELECT
-                'BOARD_RESOLUTIONS' AS MODULE,
-                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
-                SUM(
-                    CASE
-                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
-                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
-                        ELSE 0
-                    END
-                ) AS PENDING
-            FROM BOARD_RESOLUTIONS
+        SELECT
+            'BOARD_RESOLUTIONS' AS MODULE,
+            SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+            SUM(
+                CASE
+                    WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                    WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE') THEN 1
+                    ELSE 0
+                END
+            ) AS PENDING
+        FROM BOARD_RESOLUTIONS
 
-            UNION ALL
+        UNION ALL
 
-            SELECT
-                'BIR_1906_ATP' AS MODULE,
-                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
-                SUM(
-                    CASE
-                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
-                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
-                        ELSE 0
-                    END
-                ) AS PENDING
-            FROM BIR_1906_ATP
+        SELECT
+            'BIR_1906_ATP' AS MODULE,
+            SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+            SUM(
+                CASE
+                    WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                    WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE') THEN 1
+                    ELSE 0
+                END
+            ) AS PENDING
+        FROM BIR_1906_ATP
 
-            UNION ALL
+        UNION ALL
 
-            SELECT
-                'ATP_CERTIFICATES' AS MODULE,
-                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
-                SUM(
-                    CASE
-                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
-                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
-                        ELSE 0
-                    END
-                ) AS PENDING
-            FROM ATP_CERTIFICATES
+        SELECT
+            'ATP_CERTIFICATES' AS MODULE,
+            SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+            SUM(
+                CASE
+                    WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                    WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE') THEN 1
+                    ELSE 0
+                END
+            ) AS PENDING
+        FROM ATP_CERTIFICATES
 
-            UNION ALL
+        UNION ALL
 
-            SELECT
-                'BOA_STICKER' AS MODULE,
-                SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
-                SUM(
-                    CASE
-                        WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
-                        WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
-                        ELSE 0
-                    END
-                ) AS PENDING
-            FROM BOA_STICKER
-            """
-        )
-        cols = ["MODULE", "DONE", "PENDING"]
-        return pd.DataFrame(cursor.fetchall(), columns=cols)
+        SELECT
+            'BOA_STICKER' AS MODULE,
+            SUM(CASE WHEN UPPER(STATUS) = 'DONE' THEN 1 ELSE 0 END) AS DONE,
+            SUM(
+                CASE
+                    WHEN STATUS IS NULL OR TRIM(STATUS) = '' THEN 1
+                    WHEN UPPER(STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE') THEN 1
+                    ELSE 0
+                END
+            ) AS PENDING
+        FROM BOA_STICKER
+        """
+    )
+    cols = ["MODULE", "DONE", "PENDING"]
+    return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     status_df = load_status_kpis_local()
 
