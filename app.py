@@ -2089,7 +2089,7 @@ def dashboard_analytics():
 
     # ========================= GLOBAL DONE / PENDING KPI ACROSS MODULES =========================
     @st.cache_data(ttl=60, show_spinner=False)
-    def load_status_kpis_local():
+def load_status_kpis_local():
     conn, cursor = get_cursor()
     cursor.execute(
         """
