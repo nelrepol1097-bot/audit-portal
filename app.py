@@ -2095,7 +2095,96 @@ def dashboard_analytics():
     c3.markdown(f'<div class="kpi-card"><h2>{late}</h2><p>Late</p></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="kpi-card"><h2>{high_risk}</h2><p>High Risk</p></div>', unsafe_allow_html=True)
 
+
+    # ========================= BUSINESS PERMIT INFOGRAPHIC =========================
+st.markdown('<div class="infographic">', unsafe_allow_html=True)
+
+st.subheader("🏢 Business Permit Infographic Insight")
+
+if not df.empty:
+
+    # ========================= STATUS DISTRIBUTION =========================
+    st.markdown("### 📊 Compliance Status Distribution")
+
+    status_count = df["SLA"].value_counts().reset_index()
+    status_count.columns = ["STATUS", "COUNT"]
+
+    fig_status = px.pie(
+        status_count,
+        names="STATUS",
+        values="COUNT",
+        hole=0.5
+    )
+
+    st.plotly_chart(fig_status, use_container_width=True)
+
+    # ========================= AREA PERFORMANCE =========================
+    st.markdown("### 🌍 Area Compliance Performance")
+
+    area_perf = df.groupby("AREA").agg(
+        TOTAL=("BRANCH", "count"),
+        LATE=("SLA", lambda x: (x == "LATE").sum())
+    ).reset_index()
+
+    area_perf["COMPLIANCE_RATE"] = (
+        (area_perf["TOTAL"] - area_perf["LATE"]) / area_perf["TOTAL"] * 100
+    )
+
+    fig_area = px.bar(
+        area_perf,
+        x="AREA",
+        y="COMPLIANCE_RATE",
+        text="COMPLIANCE_RATE"
+    )
+
+    st.plotly_chart(fig_area, use_container_width=True)
+
+    # ========================= RISK HEATMAP =========================
+    st.markdown("### 🔥 Risk Heatmap")
+
+    heatmap_df = df.pivot_table(
+        index="AREA",
+        columns="COMPANY",
+        values="RISK",
+        aggfunc="mean"
+    )
+
+    fig_heat = px.imshow(heatmap_df, text_auto=True, aspect="auto")
+    st.plotly_chart(fig_heat, use_container_width=True)
+
+    # ========================= EXECUTIVE INSIGHTS =========================
+    st.markdown("### 🧠 Executive Insights")
+
+    top_risk_area = area_perf.sort_values("LATE", ascending=False).iloc[0]["AREA"]
+    best_area = area_perf.sort_values("COMPLIANCE_RATE", ascending=False).iloc[0]["AREA"]
+
+    pending_sec = len(df[df["SEC_CERT"] == "PENDING"])
+    missing_gross = len(df[df["GROSS_SALES_CERT"].isna()])
+
+    st.info(f"""
+    🔎 **Key Findings:**
+    - Highest delay concentration is in **{top_risk_area}**
+    - Best performing area is **{best_area}**
+    - {pending_sec} branches still have **pending SEC Certificates**
+    - {missing_gross} branches have **missing Gross Sales data**
+
+    📊 **Interpretation:**
+    - Delays are likely driven by incomplete documentation (SEC + Gross Sales)
+    - Areas with high delay should be prioritized for compliance intervention
+    - Strong areas can be used as benchmarking models
+
+    🚀 **Recommended Actions:**
+    - Focus compliance audit on **{top_risk_area}**
+    - Automate SEC & Gross Sales tracking
+    - Implement early warning alerts for deadlines
+    """)
+
+else:
+    st.warning("No data available for Business Permit Insights")
+
+st.markdown('</div>', unsafe_allow_html=True)
     # ========================= INFOGRAPHIC =========================
+    
     st.markdown('<div class="infographic">', unsafe_allow_html=True)
 
     st.subheader("⚡ Executive Infographic Report")
