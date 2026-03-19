@@ -2099,11 +2099,11 @@ def dashboard_analytics():
                 SUM(
                     CASE
                         WHEN FINAL_STATUS IS NULL OR TRIM(FINAL_STATUS) = '' THEN 1
-                        WHEN UPPER(FINAL_STATUS) IN ('PENDING','PROCESS','PROCESSING','NOT YET DONE) THEN 1
+                        WHEN UPPER(FINAL_STATUS) IN ('PENDING','PROCESS','PROCESSING') THEN 1
                         ELSE 0
                     END
                 ) AS PENDING
-            FROM SECRETARY_CERTIFICATE
+            FROM SECRETARY_CERTIFICATES
 
             UNION ALL
 
