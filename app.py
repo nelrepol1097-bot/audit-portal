@@ -1562,12 +1562,8 @@ def tax_mapped():
         cursor.execute("SELECT * FROM TAX_MAPPED")
         data = cursor.fetchall()
         columns = [
-            "ID",
-            "AREA",
-            "BRANCH",
-            "DATE_TAX_MAPPED",
-            "BIR_REMARKS",
-            "STICKER_IMAGE",
+            "ID","AREA","BRANCH","DATE_TAX_MAPPED",
+            "BIR_REMARKS","STICKER_IMAGE"
         ]
         return pd.DataFrame(data, columns=columns)
 
@@ -1608,18 +1604,13 @@ def tax_mapped():
                 """,
                 update_sql="""
                     UPDATE TAX_MAPPED
-                    SET
-                        AREA=%s,
-                        BRANCH=%s,
-                        DATE_TAX_MAPPED=%s,
-                        BIR_REMARKS=%s
+                    SET AREA=%s, BRANCH=%s, DATE_TAX_MAPPED=%s, BIR_REMARKS=%s
                     WHERE ID=%s
                 """,
                 insert_cols=["AREA","BRANCH","DATE_TAX_MAPPED","BIR_REMARKS"],
                 update_cols=["AREA","BRANCH","DATE_TAX_MAPPED","BIR_REMARKS"],
             )
             load_tax_mapped.clear()
-            st.session_state.tax_mapped_orig = load_tax_mapped()
             st.success("Table Updated ✅")
             safe_rerun()
 
@@ -1640,7 +1631,6 @@ def tax_mapped():
             )
             if ok:
                 load_tax_mapped.clear()
-                st.session_state.tax_mapped_orig = load_tax_mapped()
                 st.success("Undo successful 🔄")
                 safe_rerun()
             else:
@@ -1650,17 +1640,16 @@ def tax_mapped():
     with col3:
         if st.button("🔄 Refresh"):
             load_tax_mapped.clear()
-            st.session_state.tax_mapped_orig = load_tax_mapped()
             safe_rerun()
 
     # =========================================================
-    # MULTI IMAGE UPLOAD
+    # MULTI IMAGE UPLOAD (FIXED)
     # =========================================================
     st.divider()
     st.subheader("📤 Upload Sticker Images")
 
     uploaded_files = st.file_uploader(
-        "Drag & Drop or Select Images",
+        "Drag & Drop Images",
         type=["png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
@@ -1675,43 +1664,61 @@ def tax_mapped():
 
             with colB:
                 row_id = st.number_input(
-                    f"Enter ID for {file.name}",
+                    f"ID for {file.name}",
                     key=f"id_{file.name}",
                     step=1,
                     min_value=1
                 )
 
-                if st.button(f"Upload {file.name}"):
+                # ✅ UNIQUE BUTTON KEY (IMPORTANT FIX)
+                if st.button(f"Upload {file.name}", key=f"upload_{file.name}"):
 
-                    file_bytes = file.getvalue()
+                    # 🔴 VALIDATION
+                    if not row_id:
+                        st.error("Enter valid ID")
+                        continue
 
-                    # ✅ Convert to Base64 (IMPORTANT)
-                    encoded = base64.b64encode(file_bytes).decode("utf-8")
+                    if file.size > 2 * 1024 * 1024:
+                        st.error("Max file size is 2MB")
+                        continue
 
-                    conn, cursor = get_cursor()
-                    cursor.execute(
-                        """
-                        UPDATE TAX_MAPPED
-                        SET STICKER_IMAGE = %s
-                        WHERE ID = %s
-                        """,
-                        (encoded, int(row_id)),
-                    )
-                    conn.commit()
+                    if file.type not in ["image/png", "image/jpeg"]:
+                        st.error("Only PNG/JPG allowed")
+                        continue
 
-                    st.success(f"{file.name} uploaded successfully ✅")
-                    load_tax_mapped.clear()
-                    safe_rerun()
+                    try:
+                        file_bytes = file.getvalue()
+                        encoded = base64.b64encode(file_bytes).decode("utf-8")
+
+                        conn, cursor = get_cursor()
+
+                        cursor.execute(
+                            """
+                            UPDATE TAX_MAPPED
+                            SET STICKER_IMAGE = %s
+                            WHERE ID = %s
+                            """,
+                            (encoded, int(row_id)),
+                        )
+
+                        conn.commit()
+
+                        if cursor.rowcount == 0:
+                            st.warning(f"ID {row_id} not found")
+                        else:
+                            st.success(f"{file.name} uploaded ✅")
+
+                        load_tax_mapped.clear()
+                        safe_rerun()
+
+                    except Exception as e:
+                        st.error(f"Upload failed: {e}")
 
     # =========================================================
     # IMAGE GALLERY
     # =========================================================
     st.divider()
     st.subheader("🖼 Sticker Gallery")
-
-    if df.empty:
-        st.info("No records found")
-        return
 
     cols = st.columns(4)
 
@@ -1729,50 +1736,54 @@ def tax_mapped():
             st.image(img_bytes, use_container_width=True)
             st.caption(f"ID: {row['ID']} | {row['BRANCH']}")
 
-            # =================================================
-            # REPLACE IMAGE
-            # =================================================
+            # REPLACE
             replace_file = st.file_uploader(
-                f"Replace Image ID {row['ID']}",
+                f"Replace ID {row['ID']}",
                 key=f"replace_{row['ID']}"
             )
 
             if replace_file:
-                encoded = base64.b64encode(replace_file.getvalue()).decode()
+                try:
+                    encoded = base64.b64encode(replace_file.getvalue()).decode()
 
-                conn, cursor = get_cursor()
-                cursor.execute(
-                    """
-                    UPDATE TAX_MAPPED
-                    SET STICKER_IMAGE = %s
-                    WHERE ID = %s
-                    """,
-                    (encoded, int(row["ID"])),
-                )
-                conn.commit()
+                    conn, cursor = get_cursor()
+                    cursor.execute(
+                        """
+                        UPDATE TAX_MAPPED
+                        SET STICKER_IMAGE = %s
+                        WHERE ID = %s
+                        """,
+                        (encoded, int(row["ID"])),
+                    )
+                    conn.commit()
 
-                st.success("Image replaced ✅")
-                load_tax_mapped.clear()
-                safe_rerun()
+                    st.success("Replaced ✅")
+                    load_tax_mapped.clear()
+                    safe_rerun()
 
-            # =================================================
-            # DELETE IMAGE
-            # =================================================
-            if st.button(f"🗑 Delete ID {row['ID']}"):
-                conn, cursor = get_cursor()
-                cursor.execute(
-                    """
-                    UPDATE TAX_MAPPED
-                    SET STICKER_IMAGE = NULL
-                    WHERE ID = %s
-                    """,
-                    (int(row["ID"]),),
-                )
-                conn.commit()
+                except Exception as e:
+                    st.error(f"Replace failed: {e}")
 
-                st.warning("Image deleted ❌")
-                load_tax_mapped.clear()
-                safe_rerun()
+            # DELETE
+            if st.button(f"🗑 Delete {row['ID']}", key=f"del_{row['ID']}"):
+                try:
+                    conn, cursor = get_cursor()
+                    cursor.execute(
+                        """
+                        UPDATE TAX_MAPPED
+                        SET STICKER_IMAGE = NULL
+                        WHERE ID = %s
+                        """,
+                        (int(row["ID"]),),
+                    )
+                    conn.commit()
+
+                    st.warning("Deleted ❌")
+                    load_tax_mapped.clear()
+                    safe_rerun()
+
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
