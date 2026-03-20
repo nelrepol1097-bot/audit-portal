@@ -1548,13 +1548,14 @@ def business_permits():
             st.success("Saved ✅")
             safe_rerun()
 
-
-# ---------------------------------------------------
-# TAX MAPPED
-# ---------------------------------------------------
 def tax_mapped():
+    import base64
+
     st.title("🏷 TAX MAPPED Report")
 
+    # =========================================================
+    # LOAD DATA
+    # =========================================================
     @st.cache_data(ttl=30, show_spinner=False)
     def load_tax_mapped():
         conn, cursor = get_cursor()
@@ -1575,6 +1576,11 @@ def tax_mapped():
     if "tax_mapped_orig" not in st.session_state:
         st.session_state.tax_mapped_orig = df.copy()
 
+    # =========================================================
+    # TABLE EDITOR
+    # =========================================================
+    st.subheader("📋 Tax Mapped Table")
+
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1585,9 +1591,10 @@ def tax_mapped():
         },
     )
 
-    col_save, col_undo, col_refresh = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with col_save:
+    # SAVE
+    with col1:
         if st.button("💾 Save Table"):
             handle_save_with_id(
                 df_name_prefix="tax_mapped",
@@ -1608,25 +1615,16 @@ def tax_mapped():
                         BIR_REMARKS=%s
                     WHERE ID=%s
                 """,
-                insert_cols=[
-                    "AREA",
-                    "BRANCH",
-                    "DATE_TAX_MAPPED",
-                    "BIR_REMARKS",
-                ],
-                update_cols=[
-                    "AREA",
-                    "BRANCH",
-                    "DATE_TAX_MAPPED",
-                    "BIR_REMARKS",
-                ],
+                insert_cols=["AREA","BRANCH","DATE_TAX_MAPPED","BIR_REMARKS"],
+                update_cols=["AREA","BRANCH","DATE_TAX_MAPPED","BIR_REMARKS"],
             )
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
             st.success("Table Updated ✅")
             safe_rerun()
 
-    with col_undo:
+    # UNDO
+    with col2:
         if st.button("↩ Undo last delete"):
             ok = handle_undo_with_id(
                 df_name_prefix="tax_mapped",
@@ -1637,49 +1635,144 @@ def tax_mapped():
                     VALUES (%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
-                    "ID",
-                    "AREA",
-                    "BRANCH",
-                    "DATE_TAX_MAPPED",
-                    "BIR_REMARKS",
-                    "STICKER_IMAGE",
+                    "ID","AREA","BRANCH","DATE_TAX_MAPPED","BIR_REMARKS","STICKER_IMAGE"
                 ],
             )
             if ok:
                 load_tax_mapped.clear()
                 st.session_state.tax_mapped_orig = load_tax_mapped()
-                st.success("Delete undone 🔄")
+                st.success("Undo successful 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
-    with col_refresh:
+    # REFRESH
+    with col3:
         if st.button("🔄 Refresh"):
             load_tax_mapped.clear()
             st.session_state.tax_mapped_orig = load_tax_mapped()
             safe_rerun()
 
-    st.subheader("Upload Tax Mapped Sticker")
+    # =========================================================
+    # MULTI IMAGE UPLOAD
+    # =========================================================
+    st.divider()
+    st.subheader("📤 Upload Sticker Images")
 
-    row_id = st.number_input("Enter Row ID", step=1, min_value=1)
-    uploaded_file = st.file_uploader("Upload Sticker Image")
+    uploaded_files = st.file_uploader(
+        "Drag & Drop or Select Images",
+        type=["png", "jpg", "jpeg"],
+        accept_multiple_files=True
+    )
 
-    if uploaded_file is not None:
-        st.image(uploaded_file, width=250)
-        file_bytes = uploaded_file.getvalue()
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            UPDATE TAX_MAPPED
-            SET STICKER_IMAGE = %s
-            WHERE ID = %s
-            """,
-            (file_bytes, int(row_id)),
-        )
-        conn.commit()
-        st.success("Sticker uploaded to database ✅")
+    if uploaded_files:
+        for file in uploaded_files:
 
+            colA, colB = st.columns([1, 2])
 
+            with colA:
+                st.image(file, width=120)
+
+            with colB:
+                row_id = st.number_input(
+                    f"Enter ID for {file.name}",
+                    key=f"id_{file.name}",
+                    step=1,
+                    min_value=1
+                )
+
+                if st.button(f"Upload {file.name}"):
+
+                    file_bytes = file.getvalue()
+
+                    # ✅ Convert to Base64 (IMPORTANT)
+                    encoded = base64.b64encode(file_bytes).decode("utf-8")
+
+                    conn, cursor = get_cursor()
+                    cursor.execute(
+                        """
+                        UPDATE TAX_MAPPED
+                        SET STICKER_IMAGE = %s
+                        WHERE ID = %s
+                        """,
+                        (encoded, int(row_id)),
+                    )
+                    conn.commit()
+
+                    st.success(f"{file.name} uploaded successfully ✅")
+                    load_tax_mapped.clear()
+                    safe_rerun()
+
+    # =========================================================
+    # IMAGE GALLERY
+    # =========================================================
+    st.divider()
+    st.subheader("🖼 Sticker Gallery")
+
+    if df.empty:
+        st.info("No records found")
+        return
+
+    cols = st.columns(4)
+
+    for i, row in df.iterrows():
+
+        if not row["STICKER_IMAGE"]:
+            continue
+
+        try:
+            img_bytes = base64.b64decode(row["STICKER_IMAGE"])
+        except:
+            continue
+
+        with cols[i % 4]:
+            st.image(img_bytes, use_container_width=True)
+            st.caption(f"ID: {row['ID']} | {row['BRANCH']}")
+
+            # =================================================
+            # REPLACE IMAGE
+            # =================================================
+            replace_file = st.file_uploader(
+                f"Replace Image ID {row['ID']}",
+                key=f"replace_{row['ID']}"
+            )
+
+            if replace_file:
+                encoded = base64.b64encode(replace_file.getvalue()).decode()
+
+                conn, cursor = get_cursor()
+                cursor.execute(
+                    """
+                    UPDATE TAX_MAPPED
+                    SET STICKER_IMAGE = %s
+                    WHERE ID = %s
+                    """,
+                    (encoded, int(row["ID"])),
+                )
+                conn.commit()
+
+                st.success("Image replaced ✅")
+                load_tax_mapped.clear()
+                safe_rerun()
+
+            # =================================================
+            # DELETE IMAGE
+            # =================================================
+            if st.button(f"🗑 Delete ID {row['ID']}"):
+                conn, cursor = get_cursor()
+                cursor.execute(
+                    """
+                    UPDATE TAX_MAPPED
+                    SET STICKER_IMAGE = NULL
+                    WHERE ID = %s
+                    """,
+                    (int(row["ID"]),),
+                )
+                conn.commit()
+
+                st.warning("Image deleted ❌")
+                load_tax_mapped.clear()
+                safe_rerun()
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
