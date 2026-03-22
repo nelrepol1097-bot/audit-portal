@@ -7,3 +7,5 @@ streamlit-lottie
 openai
 streamlit-autorefresh
 streamlit-plotly-events
+scikit-learn
+openpyxl
