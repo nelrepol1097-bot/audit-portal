@@ -1537,6 +1537,37 @@ def business_permits():
         ["Overview", "Business Permit", "Brgy Permit", "Other Fees for Renew"]
     )
 
+    # Local value sanitizers so this function is self-contained.
+    def _db_param(value):
+        if value is None:
+            return None
+        if value is pd.NA or value is pd.NaT:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            if s == "" or s.lower() == "none":
+                return None
+            return value
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return value
+
+    def _db_date(value):
+        v = _db_param(value)
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        ts = pd.to_datetime(v, errors="coerce")
+        if pd.isna(ts):
+            return None
+        return ts.date()
+
     @st.cache_data(ttl=30, show_spinner=False)
     def load_data(data_type):
         conn, cursor = get_cursor()
@@ -1613,79 +1644,158 @@ def business_permits():
 
     def save_overview(df):
         conn, cursor = get_cursor()
+        skipped_rows = 0
+
         for _, row in df.iterrows():
+            company = _db_param(row["COMPANY"])
+            area = _db_param(row["AREA"])
+            branch = _db_param(row["BRANCH"])
+
+            # required keys
+            if not company or not area or not branch:
+                skipped_rows += 1
+                continue
+
             cursor.execute(
                 """
-                UPDATE BUSINESS_PERMIT_OVERVIEW
-                SET
-                    DEADLINE=%s,
-                    DEADLINE_EXTENSION=%s,
-                    BRGY_PERMIT_2025=%s,
-                    BUSINESS_PERMIT_2025=%s,
-                    SEC_CERT=%s,
-                    GROSS_SALES_CERT=%s
-                WHERE COMPANY=%s AND AREA=%s AND BRANCH=%s
+                MERGE INTO BUSINESS_PERMIT_OVERVIEW t
+                USING (
+                    SELECT
+                        %s AS COMPANY,
+                        %s AS AREA,
+                        %s AS BRANCH,
+                        %s AS DEADLINE,
+                        %s AS DEADLINE_EXTENSION,
+                        %s AS BRGY_PERMIT_2025,
+                        %s AS BUSINESS_PERMIT_2025,
+                        %s AS SEC_CERT,
+                        %s AS GROSS_SALES_CERT
+                ) s
+                ON t.COMPANY = s.COMPANY
+                AND t.AREA = s.AREA
+                AND t.BRANCH = s.BRANCH
+                WHEN MATCHED THEN UPDATE SET
+                    DEADLINE = s.DEADLINE,
+                    DEADLINE_EXTENSION = s.DEADLINE_EXTENSION,
+                    BRGY_PERMIT_2025 = s.BRGY_PERMIT_2025,
+                    BUSINESS_PERMIT_2025 = s.BUSINESS_PERMIT_2025,
+                    SEC_CERT = s.SEC_CERT,
+                    GROSS_SALES_CERT = s.GROSS_SALES_CERT
+                WHEN NOT MATCHED THEN INSERT
+                    (COMPANY, AREA, BRANCH, DEADLINE, DEADLINE_EXTENSION, BRGY_PERMIT_2025, BUSINESS_PERMIT_2025, SEC_CERT, GROSS_SALES_CERT)
+                VALUES
+                    (s.COMPANY, s.AREA, s.BRANCH, s.DEADLINE, s.DEADLINE_EXTENSION, s.BRGY_PERMIT_2025, s.BUSINESS_PERMIT_2025, s.SEC_CERT, s.GROSS_SALES_CERT)
                 """,
                 (
-                    row["DEADLINE"],
-                    row["DEADLINE_EXTENSION"],
-                    row["BRGY_PERMIT_2025"],
-                    row["BUSINESS_PERMIT_2025"],
-                    row["SEC_CERT"],
-                    row["GROSS_SALES_CERT"],
-                    row["COMPANY"],
-                    row["AREA"],
-                    row["BRANCH"],
+                    company,
+                    area,
+                    branch,
+                    _db_date(row["DEADLINE"]),
+                    _db_date(row["DEADLINE_EXTENSION"]),
+                    _db_param(row["BRGY_PERMIT_2025"]),
+                    _db_param(row["BUSINESS_PERMIT_2025"]),
+                    _db_param(row["SEC_CERT"]),
+                    _db_param(row["GROSS_SALES_CERT"]),
                 ),
             )
+
         conn.commit()
+
+        if skipped_rows:
+            st.warning(
+                f"Skipped {skipped_rows} row(s): COMPANY, AREA, and BRANCH are required."
+            )
 
     def update_data(df, data_type):
         conn, cursor = get_cursor()
+        skipped_rows = 0
+
         for _, row in df.iterrows():
+            company = _db_param(row["COMPANY"])
+            area = _db_param(row["AREA"])
+            branch = _db_param(row["BRANCH"])
+
+            # required keys
+            if not company or not area or not branch:
+                skipped_rows += 1
+                continue
+
             cursor.execute(
                 """
-                UPDATE BUSINESS_PERMIT_TRACKER
-                SET
-                    CAF=%s,
-                    PAYEE=%s,
-                    PARTICULARS=%s,
-                    MODE_OF_PAYMENT=%s,
-                    AMOUNT=%s,
-                    ACCOUNTING_DATE=%s,
-                    TREASURY_DATE=%s,
-                    STATUS=%s,
-                    DATE_LIQUIDATION=%s,
-                    DATE_SUBMISSION_ACCOUNTING=%s,
-                    YEAR_COMPARISON=%s,
-                    PERCENT_CHANGE=%s,
-                    WITH_TAX_BILL=%s,
-                    REASON_NOT_REQUESTING_FUND=%s
-                WHERE
-                    TYPE=%s AND COMPANY=%s AND AREA=%s AND BRANCH=%s
+                MERGE INTO BUSINESS_PERMIT_TRACKER t
+                USING (
+                    SELECT
+                        %s AS TYPE,
+                        %s AS COMPANY,
+                        %s AS AREA,
+                        %s AS BRANCH,
+                        %s AS CAF,
+                        %s AS PAYEE,
+                        %s AS PARTICULARS,
+                        %s AS MODE_OF_PAYMENT,
+                        %s AS AMOUNT,
+                        %s AS ACCOUNTING_DATE,
+                        %s AS TREASURY_DATE,
+                        %s AS STATUS,
+                        %s AS DATE_LIQUIDATION,
+                        %s AS DATE_SUBMISSION_ACCOUNTING,
+                        %s AS YEAR_COMPARISON,
+                        %s AS PERCENT_CHANGE,
+                        %s AS WITH_TAX_BILL,
+                        %s AS REASON_NOT_REQUESTING_FUND
+                ) s
+                ON t.TYPE = s.TYPE
+                AND t.COMPANY = s.COMPANY
+                AND t.AREA = s.AREA
+                AND t.BRANCH = s.BRANCH
+                WHEN MATCHED THEN UPDATE SET
+                    CAF = s.CAF,
+                    PAYEE = s.PAYEE,
+                    PARTICULARS = s.PARTICULARS,
+                    MODE_OF_PAYMENT = s.MODE_OF_PAYMENT,
+                    AMOUNT = s.AMOUNT,
+                    ACCOUNTING_DATE = s.ACCOUNTING_DATE,
+                    TREASURY_DATE = s.TREASURY_DATE,
+                    STATUS = s.STATUS,
+                    DATE_LIQUIDATION = s.DATE_LIQUIDATION,
+                    DATE_SUBMISSION_ACCOUNTING = s.DATE_SUBMISSION_ACCOUNTING,
+                    YEAR_COMPARISON = s.YEAR_COMPARISON,
+                    PERCENT_CHANGE = s.PERCENT_CHANGE,
+                    WITH_TAX_BILL = s.WITH_TAX_BILL,
+                    REASON_NOT_REQUESTING_FUND = s.REASON_NOT_REQUESTING_FUND
+                WHEN NOT MATCHED THEN INSERT
+                    (TYPE, COMPANY, AREA, BRANCH, CAF, PAYEE, PARTICULARS, MODE_OF_PAYMENT, AMOUNT, ACCOUNTING_DATE, TREASURY_DATE, STATUS, DATE_LIQUIDATION, DATE_SUBMISSION_ACCOUNTING, YEAR_COMPARISON, PERCENT_CHANGE, WITH_TAX_BILL, REASON_NOT_REQUESTING_FUND)
+                VALUES
+                    (s.TYPE, s.COMPANY, s.AREA, s.BRANCH, s.CAF, s.PAYEE, s.PARTICULARS, s.MODE_OF_PAYMENT, s.AMOUNT, s.ACCOUNTING_DATE, s.TREASURY_DATE, s.STATUS, s.DATE_LIQUIDATION, s.DATE_SUBMISSION_ACCOUNTING, s.YEAR_COMPARISON, s.PERCENT_CHANGE, s.WITH_TAX_BILL, s.REASON_NOT_REQUESTING_FUND)
                 """,
                 (
-                    row["CAF"],
-                    row["PAYEE"],
-                    row["PARTICULARS"],
-                    row["MODE_OF_PAYMENT"],
-                    row["AMOUNT"],
-                    row["ACCOUNTING_DATE"],
-                    row["TREASURY_DATE"],
-                    row["STATUS"],
-                    row["DATE_LIQUIDATION"],
-                    row["DATE_SUBMISSION_ACCOUNTING"],
-                    row["YEAR_COMPARISON"],
-                    row["PERCENT_CHANGE"],
-                    row["WITH_TAX_BILL"],
-                    row["REASON_NOT_REQUESTING_FUND"],
-                    data_type,
-                    row["COMPANY"],
-                    row["AREA"],
-                    row["BRANCH"],
+                    _db_param(data_type),
+                    company,
+                    area,
+                    branch,
+                    _db_param(row["CAF"]),
+                    _db_param(row["PAYEE"]),
+                    _db_param(row["PARTICULARS"]),
+                    _db_param(row["MODE_OF_PAYMENT"]),
+                    _db_param(row["AMOUNT"]),
+                    _db_date(row["ACCOUNTING_DATE"]),
+                    _db_date(row["TREASURY_DATE"]),
+                    _db_param(row["STATUS"]),
+                    _db_date(row["DATE_LIQUIDATION"]),
+                    _db_date(row["DATE_SUBMISSION_ACCOUNTING"]),
+                    _db_param(row["YEAR_COMPARISON"]),
+                    _db_param(row["PERCENT_CHANGE"]),
+                    _db_param(row["WITH_TAX_BILL"]),
+                    _db_param(row["REASON_NOT_REQUESTING_FUND"]),
                 ),
             )
+
         conn.commit()
+
+        if skipped_rows:
+            st.warning(
+                f"Skipped {skipped_rows} row(s): COMPANY, AREA, and BRANCH are required."
+            )
 
     def render_editor(df, key):
         return st.data_editor(
