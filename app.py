@@ -1102,6 +1102,30 @@ def fire_safety():
 def branch_tin_address():
     st.title("🏢 Branch TIN & Address")
 
+    def _db_param(value):
+        if value is None:
+            return None
+        if value is pd.NA or value is pd.NaT:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return None if s == "" else s
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+        return value
+
+    def _db_date(value):
+        v = _db_param(value)
+        if v is None:
+            return None
+        ts = pd.to_datetime(v, errors="coerce")
+        if pd.isna(ts):
+            return None
+        return ts.date()
+
     @st.cache_data(ttl=30, show_spinner=False)
     def load_branch_tin(company):
         conn, cursor = get_cursor()
@@ -1127,30 +1151,20 @@ def branch_tin_address():
             (company,),
         )
         cols = [
-            "ID",
-            "COMPANY",
-            "TIN",
-            "BRANCH_CODE",
-            "RDO",
-            "AREA",
-            "BRANCH_NAME",
-            "UPDATED_ADDRESS",
-            "STATUS",
-            "DATE_OPEN",
-            "DATE_OF_CLOSURE",
-            "REMARKS",  # last column
+            "ID", "COMPANY", "TIN", "BRANCH_CODE", "RDO", "AREA", "BRANCH_NAME",
+            "UPDATED_ADDRESS", "STATUS", "DATE_OPEN", "DATE_OF_CLOSURE", "REMARKS"
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("SUKI Branch"):
+        if st.button("SUKI Branch", key="tin_suki"):
             st.session_state.company = "SUKI"
     with col2:
-        if st.button("PCNFCI Branch"):
+        if st.button("PCNFCI Branch", key="tin_pcnfci"):
             st.session_state.company = "PCNFCI"
     with col3:
-        if st.button("FASTCASH Branch"):
+        if st.button("FASTCASH Branch", key="tin_fastcash"):
             st.session_state.company = "FASTCASH"
 
     if "company" not in st.session_state:
@@ -1168,19 +1182,111 @@ def branch_tin_address():
     if orig_key not in st.session_state:
         st.session_state[orig_key] = df.copy()
 
+    # ===== QUICK SCENARIOS (THIS IS WHAT WAS MISSING) =====
+    st.markdown("### Quick Scenarios")
+    s1, s2 = st.columns(2)
+
+    with s1:
+        st.markdown("**New Branch Address**")
+        with st.form(f"{key_prefix}_new_branch_form", clear_on_submit=True):
+            nb_branch = st.text_input("Branch Name")
+            nb_area = st.text_input("Area")
+            nb_tin = st.text_input("TIN")
+            nb_code = st.text_input("Branch Code")
+            nb_rdo = st.text_input("RDO")
+            nb_address = st.text_area("Branch Address")
+            nb_remarks = st.text_area("Remarks")
+            nb_open = st.date_input("Date Open")
+            nb_submit = st.form_submit_button("➕ Add New Branch")
+
+            if nb_submit:
+                conn, cursor = get_cursor()
+                try:
+                    cursor.execute(
+                        """
+                        INSERT INTO BRANCH_TIN_ADDRESS
+                        (COMPANY, TIN, BRANCH_CODE, RDO, AREA, BRANCH_NAME, UPDATED_ADDRESS, STATUS, DATE_OPEN, DATE_OF_CLOSURE, REMARKS)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (
+                            selected_company,
+                            _db_param(nb_tin),
+                            _db_param(nb_code),
+                            _db_param(nb_rdo),
+                            _db_param(nb_area),
+                            _db_param(nb_branch),
+                            _db_param(nb_address),
+                            "NEW",
+                            _db_date(nb_open),
+                            None,
+                            _db_param(nb_remarks),
+                        ),
+                    )
+                    conn.commit()
+                    load_branch_tin.clear()
+                    st.session_state[orig_key] = load_branch_tin(selected_company)
+                    st.success("New branch address added ✅")
+                    safe_rerun()
+                except Exception as e:
+                    st.error(f"Failed to add new branch: {e}")
+
+    with s2:
+        st.markdown("**Changed Address**")
+        branch_options = (
+            df["BRANCH_NAME"].dropna().astype(str).sort_values().unique().tolist()
+            if not df.empty else []
+        )
+
+        with st.form(f"{key_prefix}_change_addr_form", clear_on_submit=True):
+            ch_branch = st.selectbox(
+                "Select Branch",
+                options=branch_options if branch_options else [""]
+            )
+            ch_address = st.text_area("New Address")
+            ch_remarks = st.text_area("Remarks (change reason)")
+            ch_submit = st.form_submit_button("📝 Mark as CHANGED")
+
+            if ch_submit:
+                if not ch_branch:
+                    st.warning("Select a branch first.")
+                else:
+                    conn, cursor = get_cursor()
+                    try:
+                        cursor.execute(
+                            """
+                            UPDATE BRANCH_TIN_ADDRESS
+                            SET UPDATED_ADDRESS=%s, STATUS='CHANGED', REMARKS=%s
+                            WHERE COMPANY=%s AND BRANCH_NAME=%s
+                            """,
+                            (
+                                _db_param(ch_address),
+                                _db_param(ch_remarks),
+                                selected_company,
+                                ch_branch,
+                            ),
+                        )
+                        conn.commit()
+                        load_branch_tin.clear()
+                        st.session_state[orig_key] = load_branch_tin(selected_company)
+                        st.success(f"Address updated for {ch_branch} ✅")
+                        safe_rerun()
+                    except Exception as e:
+                        st.error(f"Failed to update address: {e}")
+
+    # ===== MAIN EDITOR =====
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
         use_container_width=True,
         key=f"{key_prefix}_editor",
         column_config={
-            "DATE_OPEN": st.column_config.DateColumn("Date Open"),
-            "DATE_OF_CLOSURE": st.column_config.DateColumn("Date of Closure"),
             "STATUS": st.column_config.SelectboxColumn(
                 "STATUS",
                 options=["ACTIVE", "NEW", "CHANGED", "CLOSED", "PENDING", "DONE"],
             ),
-            "REMARKS": st.column_config.TextColumn("Remarks"),  # visible at end
+            "DATE_OPEN": st.column_config.DateColumn("Date Open"),
+            "DATE_OF_CLOSURE": st.column_config.DateColumn("Date of Closure"),
+            "REMARKS": st.column_config.TextColumn("Remarks"),
         },
     )
 
@@ -1190,10 +1296,9 @@ def branch_tin_address():
         if st.button("💾 Save Changes", key=f"{key_prefix}_save"):
             edited_df = edited_df.copy()
             for date_col in ["DATE_OPEN", "DATE_OF_CLOSURE"]:
-                if date_col in edited_df.columns:
-                    edited_df[date_col] = pd.to_datetime(
-                        edited_df[date_col], errors="coerce"
-                    ).dt.date
+                edited_df[date_col] = pd.to_datetime(
+                    edited_df[date_col], errors="coerce"
+                ).dt.date
             edited_df = edited_df.where(pd.notnull(edited_df), None)
 
             handle_save_with_id(
@@ -1223,33 +1328,14 @@ def branch_tin_address():
                     WHERE ID=%s
                 """,
                 insert_cols=[
-                    "COMPANY",
-                    "TIN",
-                    "BRANCH_CODE",
-                    "RDO",
-                    "AREA",
-                    "BRANCH_NAME",
-                    "UPDATED_ADDRESS",
-                    "STATUS",
-                    "DATE_OPEN",
-                    "DATE_OF_CLOSURE",
-                    "REMARKS",  # last
+                    "COMPANY", "TIN", "BRANCH_CODE", "RDO", "AREA", "BRANCH_NAME",
+                    "UPDATED_ADDRESS", "STATUS", "DATE_OPEN", "DATE_OF_CLOSURE", "REMARKS"
                 ],
                 update_cols=[
-                    "COMPANY",
-                    "TIN",
-                    "BRANCH_CODE",
-                    "RDO",
-                    "AREA",
-                    "BRANCH_NAME",
-                    "UPDATED_ADDRESS",
-                    "STATUS",
-                    "DATE_OPEN",
-                    "DATE_OF_CLOSURE",
-                    "REMARKS",  # last
+                    "COMPANY", "TIN", "BRANCH_CODE", "RDO", "AREA", "BRANCH_NAME",
+                    "UPDATED_ADDRESS", "STATUS", "DATE_OPEN", "DATE_OF_CLOSURE", "REMARKS"
                 ],
             )
-
             load_branch_tin.clear()
             st.session_state[orig_key] = load_branch_tin(selected_company)
             st.success("Data saved successfully ✅")
@@ -1266,18 +1352,8 @@ def branch_tin_address():
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
-                    "ID",
-                    "COMPANY",
-                    "TIN",
-                    "BRANCH_CODE",
-                    "RDO",
-                    "AREA",
-                    "BRANCH_NAME",
-                    "UPDATED_ADDRESS",
-                    "STATUS",
-                    "DATE_OPEN",
-                    "DATE_OF_CLOSURE",
-                    "REMARKS",
+                    "ID", "COMPANY", "TIN", "BRANCH_CODE", "RDO", "AREA", "BRANCH_NAME",
+                    "UPDATED_ADDRESS", "STATUS", "DATE_OPEN", "DATE_OF_CLOSURE", "REMARKS"
                 ],
             )
             if ok:
@@ -1293,7 +1369,6 @@ def branch_tin_address():
             load_branch_tin.clear()
             st.session_state[orig_key] = load_branch_tin(selected_company)
             safe_rerun()
-
 
 def business_permits():
     st.title("🏢 Business Permits Report")
