@@ -1102,47 +1102,31 @@ def fire_safety():
 def branch_tin_address():
     st.title("🏢 Branch TIN & Address")
 
-    # =========================================================
-    # 1) LOADERS
-    # =========================================================
-    @st.cache_data(ttl=30, show_spinner=False)
-    def load_new_branch_source():
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT
-                COMPANY,
-                BRANCH,
-                ADDRESS,
-                DATE_OF_OPENING
-            FROM NEW_BRANCH_ADDRESS
-            """
-        )
-        return pd.DataFrame(
-            cursor.fetchall(),
-            columns=["COMPANY", "BRANCH", "ADDRESS", "DATE_OF_OPENING"],
-        )
+    # ============================================
+    # Company buttons
+    # ============================================
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
 
-    @st.cache_data(ttl=30, show_spinner=False)
-    def load_changed_address_source():
-        conn, cursor = get_cursor()
-        cursor.execute(
-            """
-            SELECT
-                COMPANY,
-                BRANCH,
-                ADDRESS_NEW,
-                ADDRESS_OLD
-            FROM CHANGED_ADDRESS
-            """
-        )
-        return pd.DataFrame(
-            cursor.fetchall(),
-            columns=["COMPANY", "BRANCH", "ADDRESS_NEW", "ADDRESS_OLD"],
-        )
+    with col_btn1:
+        if st.button("SUKI", key="tin_btn_suki"):
+            st.session_state.branch_company = "SUKI"
 
+    with col_btn2:
+        if st.button("PCNFCI", key="tin_btn_pcnfci"):
+            st.session_state.branch_company = "PCNFCI"
+
+    with col_btn3:
+        if st.button("FASTCASH", key="tin_btn_fastcash"):
+            st.session_state.branch_company = "FASTCASH"
+
+    selected_company = st.session_state.get("branch_company", "SUKI")
+    st.subheader(f"{selected_company} BRANCH TIN AND ADDRESS")
+
+    # ============================================
+    # Load data by company
+    # ============================================
     @st.cache_data(ttl=30, show_spinner=False)
-    def load_master():
+    def load_branch_tin(company):
         conn, cursor = get_cursor()
         cursor.execute(
             """
@@ -1154,15 +1138,16 @@ def branch_tin_address():
                 RDO,
                 AREA,
                 BRANCH_NAME,
-                DATE_OPEN,
                 UPDATED_ADDRESS,
                 STATUS,
+                DATE_OPEN,
                 DATE_OF_CLOSURE,
                 REMARKS
             FROM BRANCH_TIN_ADDRESS
-            WHERE UPPER(COMPANY) IN ('SUKI','FASTCASH','PCNFCI')
-            ORDER BY COMPANY, AREA, BRANCH_NAME
-            """
+            WHERE COMPANY = %s
+            ORDER BY AREA, BRANCH_NAME
+            """,
+            (company,),
         )
         cols = [
             "ID",
@@ -1172,186 +1157,112 @@ def branch_tin_address():
             "RDO",
             "AREA",
             "BRANCH_NAME",
-            "DATE_OPEN",
             "UPDATED_ADDRESS",
             "STATUS",
+            "DATE_OPEN",
             "DATE_OF_CLOSURE",
             "REMARKS",
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    # =========================================================
-    # 2) SHOW SOURCE TABLES (read-only)
-    # =========================================================
-    st.markdown("### NEW BRANCH ADDRESS (Source)")
-    df_new_src = load_new_branch_source()
-    st.dataframe(df_new_src, use_container_width=True, hide_index=True)
+    df = load_branch_tin(selected_company)
 
-    st.markdown("### CHANGED ADDRESS (Source)")
-    df_changed_src = load_changed_address_source()
-    st.dataframe(df_changed_src, use_container_width=True, hide_index=True)
+    key_prefix = f"branch_tin_{selected_company.lower()}"
+    orig_key = f"{key_prefix}_orig"
 
-    # =========================================================
-    # 3) PUSH SOURCE -> MASTER TABLE
-    # =========================================================
-    col_sync1, col_sync2 = st.columns(2)
+    if orig_key not in st.session_state:
+        st.session_state[orig_key] = df.copy()
 
-    with col_sync1:
-        if st.button("⬇ Import NEW BRANCH ADDRESS to Company Table"):
-            conn, cursor = get_cursor()
-            imported = 0
+    # ============================================
+    # Exact column order you requested:
+    # ID + COMPANY at beginning, REMARKS at end
+    # ============================================
+    column_order = [
+        "ID",
+        "COMPANY",
+        "TIN",
+        "BRANCH_CODE",
+        "RDO",
+        "AREA",
+        "BRANCH_NAME",
+        "UPDATED_ADDRESS",
+        "STATUS",
+        "DATE_OPEN",
+        "DATE_OF_CLOSURE",
+        "REMARKS",
+    ]
 
-            for _, r in df_new_src.iterrows():
-                try:
-                    company = (str(r["COMPANY"]).strip().upper() if pd.notna(r["COMPANY"]) else "")
-                    if company not in ["SUKI", "FASTCASH", "PCNFCI"]:
-                        continue
+    for col in column_order:
+        if col not in df.columns:
+            df[col] = None
 
-                    branch = r["BRANCH"]
-                    addr = r["ADDRESS"]
-                    dopen = pd.to_datetime(r["DATE_OF_OPENING"], errors="coerce")
-                    dopen = None if pd.isna(dopen) else dopen.date()
-
-                    cursor.execute(
-                        """
-                        MERGE INTO BRANCH_TIN_ADDRESS t
-                        USING (
-                            SELECT
-                                %s AS COMPANY,
-                                %s AS BRANCH_NAME
-                        ) s
-                        ON UPPER(t.COMPANY)=UPPER(s.COMPANY)
-                        AND UPPER(t.BRANCH_NAME)=UPPER(s.BRANCH_NAME)
-                        WHEN MATCHED THEN UPDATE SET
-                            UPDATED_ADDRESS=%s,
-                            DATE_OPEN=%s,
-                            STATUS='NEW',
-                            REMARKS='FROM NEW BRANCH ADDRESS'
-                        WHEN NOT MATCHED THEN INSERT
-                            (COMPANY, BRANCH_NAME, UPDATED_ADDRESS, DATE_OPEN, STATUS, REMARKS)
-                        VALUES
-                            (%s, %s, %s, %s, 'NEW', 'FROM NEW BRANCH ADDRESS')
-                        """,
-                        (
-                            company,
-                            branch,
-                            addr,
-                            dopen,
-                            company,
-                            branch,
-                            addr,
-                            dopen,
-                        ),
-                    )
-                    imported += 1
-                except Exception:
-                    continue
-
-            conn.commit()
-            load_master.clear()
-            st.success(f"Imported from NEW BRANCH ADDRESS: {imported} row(s) ✅")
-            safe_rerun()
-
-    with col_sync2:
-        if st.button("⬇ Import CHANGED ADDRESS to Company Table"):
-            conn, cursor = get_cursor()
-            imported = 0
-
-            for _, r in df_changed_src.iterrows():
-                try:
-                    company = (str(r["COMPANY"]).strip().upper() if pd.notna(r["COMPANY"]) else "")
-                    if company not in ["SUKI", "FASTCASH", "PCNFCI"]:
-                        continue
-
-                    branch = r["BRANCH"]
-                    addr_new = r["ADDRESS_NEW"]
-                    addr_old = r["ADDRESS_OLD"]
-
-                    remark = "FROM CHANGED ADDRESS"
-                    if pd.notna(addr_old) and str(addr_old).strip():
-                        remark = f"FROM CHANGED ADDRESS | OLD: {addr_old}"
-
-                    cursor.execute(
-                        """
-                        MERGE INTO BRANCH_TIN_ADDRESS t
-                        USING (
-                            SELECT
-                                %s AS COMPANY,
-                                %s AS BRANCH_NAME
-                        ) s
-                        ON UPPER(t.COMPANY)=UPPER(s.COMPANY)
-                        AND UPPER(t.BRANCH_NAME)=UPPER(s.BRANCH_NAME)
-                        WHEN MATCHED THEN UPDATE SET
-                            UPDATED_ADDRESS=%s,
-                            STATUS='CHANGED',
-                            REMARKS=%s
-                        WHEN NOT MATCHED THEN INSERT
-                            (COMPANY, BRANCH_NAME, UPDATED_ADDRESS, STATUS, REMARKS)
-                        VALUES
-                            (%s, %s, %s, 'CHANGED', %s)
-                        """,
-                        (
-                            company,
-                            branch,
-                            addr_new,
-                            remark,
-                            company,
-                            branch,
-                            addr_new,
-                            remark,
-                        ),
-                    )
-                    imported += 1
-                except Exception:
-                    continue
-
-            conn.commit()
-            load_master.clear()
-            st.success(f"Imported from CHANGED ADDRESS: {imported} row(s) ✅")
-            safe_rerun()
-
-    # =========================================================
-    # 4) MASTER EDITABLE TABLE (for 3 companies)
-    # =========================================================
-    st.markdown("### Company Master Table (Editable)")
-    df_master = load_master()
-
-    if "branch_tin_master_orig" not in st.session_state:
-        st.session_state.branch_tin_master_orig = df_master.copy()
+    df = df[column_order]
 
     edited_df = st.data_editor(
-        df_master,
+        df,
         num_rows="dynamic",
         use_container_width=True,
-        key="branch_tin_master_editor",
+        key=f"{key_prefix}_editor",
         column_config={
-            "DATE_OPEN": st.column_config.DateColumn("DATE OPEN"),
-            "DATE_OF_CLOSURE": st.column_config.DateColumn("DATE OF CLOSURE"),
+            "ID": st.column_config.NumberColumn("ID", disabled=True),
+            "COMPANY": st.column_config.TextColumn("COMPANY"),
+            "TIN": st.column_config.TextColumn("TIN"),
+            "BRANCH_CODE": st.column_config.TextColumn("BRANCH CODE"),
+            "RDO": st.column_config.TextColumn("RDO"),
+            "AREA": st.column_config.TextColumn("AREA"),
+            "BRANCH_NAME": st.column_config.TextColumn("BRANCH NAME"),
+            "UPDATED_ADDRESS": st.column_config.TextColumn("UPDATED ADDRESS"),
             "STATUS": st.column_config.SelectboxColumn(
                 "STATUS",
                 options=["", "ACTIVE", "NEW", "CHANGED", "CLOSED", "PENDING", "DONE"],
             ),
+            "DATE_OPEN": st.column_config.DateColumn("DATE OPEN"),
+            "DATE_OF_CLOSURE": st.column_config.DateColumn("DATE OF CLOSURE"),
             "REMARKS": st.column_config.TextColumn("REMARKS"),
         },
     )
 
-    c1, c2, c3 = st.columns(3)
+    # ============================================
+    # Save / Undo / Refresh
+    # ============================================
+    col_save, col_undo, col_refresh = st.columns(3)
 
-    with c1:
-        if st.button("💾 Save Company Table"):
-            work = edited_df.copy()
-            for dcol in ["DATE_OPEN", "DATE_OF_CLOSURE"]:
-                work[dcol] = pd.to_datetime(work[dcol], errors="coerce").dt.date
-            work = work.where(pd.notnull(work), None)
+    with col_save:
+        if st.button("💾 Save Changes", key=f"{key_prefix}_save"):
+            work_df = edited_df.copy()
+
+            # Convert date columns
+            for date_col in ["DATE_OPEN", "DATE_OF_CLOSURE"]:
+                if date_col in work_df.columns:
+                    work_df[date_col] = pd.to_datetime(
+                        work_df[date_col], errors="coerce"
+                    ).dt.date
+
+            # Normalize NaN -> None
+            work_df = work_df.where(pd.notnull(work_df), None)
+
+            # Optional auto-tag remarks if blank
+            def _auto_tag(row):
+                status = (row.get("STATUS") or "").strip().upper() if row.get("STATUS") else ""
+                remarks = (row.get("REMARKS") or "").strip() if row.get("REMARKS") else ""
+                if remarks:
+                    return remarks
+                if status == "NEW":
+                    return "FROM NEW BRANCH ADDRESS"
+                if status == "CHANGED":
+                    return "FROM CHANGED ADDRESS"
+                return None
+
+            work_df["REMARKS"] = work_df.apply(_auto_tag, axis=1)
 
             handle_save_with_id(
-                df_name_prefix="branch_tin_master",
+                df_name_prefix=key_prefix,
                 table_name="BRANCH_TIN_ADDRESS",
-                df=work,
+                df=work_df,
                 id_col="ID",
                 insert_sql="""
                     INSERT INTO BRANCH_TIN_ADDRESS
-                    (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,DATE_OPEN,UPDATED_ADDRESS,STATUS,DATE_OF_CLOSURE,REMARKS)
+                    (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE,REMARKS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 update_sql="""
@@ -1363,9 +1274,9 @@ def branch_tin_address():
                         RDO=%s,
                         AREA=%s,
                         BRANCH_NAME=%s,
-                        DATE_OPEN=%s,
                         UPDATED_ADDRESS=%s,
                         STATUS=%s,
+                        DATE_OPEN=%s,
                         DATE_OF_CLOSURE=%s,
                         REMARKS=%s
                     WHERE ID=%s
@@ -1377,9 +1288,9 @@ def branch_tin_address():
                     "RDO",
                     "AREA",
                     "BRANCH_NAME",
-                    "DATE_OPEN",
                     "UPDATED_ADDRESS",
                     "STATUS",
+                    "DATE_OPEN",
                     "DATE_OF_CLOSURE",
                     "REMARKS",
                 ],
@@ -1390,27 +1301,27 @@ def branch_tin_address():
                     "RDO",
                     "AREA",
                     "BRANCH_NAME",
-                    "DATE_OPEN",
                     "UPDATED_ADDRESS",
                     "STATUS",
+                    "DATE_OPEN",
                     "DATE_OF_CLOSURE",
                     "REMARKS",
                 ],
             )
 
-            load_master.clear()
-            st.session_state.branch_tin_master_orig = load_master()
-            st.success("Company table saved ✅")
+            load_branch_tin.clear()
+            st.session_state[orig_key] = load_branch_tin(selected_company)
+            st.success("Data saved successfully ✅")
             safe_rerun()
 
-    with c2:
-        if st.button("↩ Undo last delete"):
+    with col_undo:
+        if st.button("↩ Undo last delete", key=f"{key_prefix}_undo"):
             ok = handle_undo_with_id(
-                df_name_prefix="branch_tin_master",
+                df_name_prefix=key_prefix,
                 table_name="BRANCH_TIN_ADDRESS",
                 insert_sql_with_id="""
                     INSERT INTO BRANCH_TIN_ADDRESS
-                    (ID,COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,DATE_OPEN,UPDATED_ADDRESS,STATUS,DATE_OF_CLOSURE,REMARKS)
+                    (ID,COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE,REMARKS)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 cols_with_id=[
@@ -1421,25 +1332,25 @@ def branch_tin_address():
                     "RDO",
                     "AREA",
                     "BRANCH_NAME",
-                    "DATE_OPEN",
                     "UPDATED_ADDRESS",
                     "STATUS",
+                    "DATE_OPEN",
                     "DATE_OF_CLOSURE",
                     "REMARKS",
                 ],
             )
             if ok:
-                load_master.clear()
-                st.session_state.branch_tin_master_orig = load_master()
+                load_branch_tin.clear()
+                st.session_state[orig_key] = load_branch_tin(selected_company)
                 st.success("Delete undone 🔄")
                 safe_rerun()
             else:
                 st.info("Nothing to undo")
 
-    with c3:
-        if st.button("🔄 Refresh"):
-            load_master.clear()
-            st.session_state.branch_tin_master_orig = load_master()
+    with col_refresh:
+        if st.button("🔄 Refresh", key=f"{key_prefix}_refresh"):
+            load_branch_tin.clear()
+            st.session_state[orig_key] = load_branch_tin(selected_company)
             safe_rerun()
 # -----------------------------------------------------
 # BUsiness Permit
