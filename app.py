@@ -1104,10 +1104,12 @@ def fire_safety():
 def branch_tin_address():
     st.title("🏢 Branch TIN & Address")
 
-    # =========================
-    # 🚀 FUTURISTIC UI STYLE
-    # =========================
-    st.markdown("""
+    REMARK_NEW_VIEW = "Source: NEW BRANCH ADDRESS view"
+    REMARK_CHANGED_VIEW = "Source: CHANGED ADDRESS view"
+
+    # ========================= FUTURISTIC UI STYLE =========================
+    st.markdown(
+        """
     <style>
     .holo-title {
         text-align:center;
@@ -1141,11 +1143,10 @@ def branch_tin_address():
     </style>
 
     <div class="holo-title">⚡ BRANCH CONTROL PANEL ⚡</div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-    # =========================
-    # 🔥 ALL BUTTONS IN ONE LINE
-    # =========================
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
@@ -1171,54 +1172,184 @@ def branch_tin_address():
     if "view_mode" not in st.session_state:
         st.session_state.view_mode = "MAIN"
 
-    # =========================
-    # MAIN
-    # =========================
+    def load_data(company):
+        conn, cursor = get_cursor()
+        cursor.execute(
+            """
+            SELECT *
+            FROM BRANCH_TIN_ADDRESS
+            WHERE COMPANY = %s
+            """,
+            (company,),
+        )
+        cols = [
+            "ID",
+            "COMPANY",
+            "TIN",
+            "BRANCH_CODE",
+            "RDO",
+            "AREA",
+            "BRANCH_NAME",
+            "UPDATED_ADDRESS",
+            "STATUS",
+            "DATE_OPEN",
+            "DATE_OF_CLOSURE",
+            "REMARKS",
+        ]
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
+
+    # Shared INSERT/UPDATE including REMARKS
+    insert_sql = """
+        INSERT INTO BRANCH_TIN_ADDRESS
+        (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE,REMARKS)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """
+    update_sql = """
+        UPDATE BRANCH_TIN_ADDRESS
+        SET
+            COMPANY=%s,
+            TIN=%s,
+            BRANCH_CODE=%s,
+            RDO=%s,
+            AREA=%s,
+            BRANCH_NAME=%s,
+            UPDATED_ADDRESS=%s,
+            STATUS=%s,
+            DATE_OPEN=%s,
+            DATE_OF_CLOSURE=%s,
+            REMARKS=%s
+        WHERE ID=%s
+    """
+    insert_cols = [
+        "COMPANY",
+        "TIN",
+        "BRANCH_CODE",
+        "RDO",
+        "AREA",
+        "BRANCH_NAME",
+        "UPDATED_ADDRESS",
+        "STATUS",
+        "DATE_OPEN",
+        "DATE_OF_CLOSURE",
+        "REMARKS",
+    ]
+    update_cols = insert_cols.copy()
+
+    def merge_new_view_to_full(df_full: pd.DataFrame, edited: pd.DataFrame, company: str, remark: str) -> pd.DataFrame:
+        """Map slim NEW view columns back to full table rows."""
+        rows = []
+        df_full = df_full.copy()
+        df_full["ID"] = pd.to_numeric(df_full["ID"], errors="coerce")
+
+        for _, er in edited.iterrows():
+            eid = pd.to_numeric(er.get("ID"), errors="coerce")
+            addr = er.get("ADDRESS")
+            if pd.isna(addr) or str(addr).strip() == "":
+                addr = er.get("UPDATED_ADDRESS")
+
+            if pd.notna(eid):
+                match = df_full[df_full["ID"] == int(eid)]
+                if match.empty:
+                    continue
+                base = match.iloc[0].to_dict()
+                base["BRANCH_NAME"] = er.get("BRANCH_NAME", base.get("BRANCH_NAME"))
+                base["UPDATED_ADDRESS"] = addr
+                base["DATE_OPEN"] = er.get("DATE_OPEN", base.get("DATE_OPEN"))
+                base["STATUS"] = "NEW"
+                base["REMARKS"] = remark
+                base["COMPANY"] = company
+                rows.append(base)
+            else:
+                rows.append(
+                    {
+                        "ID": None,
+                        "COMPANY": company,
+                        "TIN": er.get("TIN"),
+                        "BRANCH_CODE": er.get("BRANCH_CODE"),
+                        "RDO": er.get("RDO"),
+                        "AREA": er.get("AREA"),
+                        "BRANCH_NAME": er.get("BRANCH_NAME"),
+                        "UPDATED_ADDRESS": addr,
+                        "STATUS": "NEW",
+                        "DATE_OPEN": er.get("DATE_OPEN"),
+                        "DATE_OF_CLOSURE": er.get("DATE_OF_CLOSURE"),
+                        "REMARKS": remark,
+                    }
+                )
+
+        return pd.DataFrame(rows)
+
+    def merge_changed_view_to_full(df_full: pd.DataFrame, edited: pd.DataFrame, company: str, remark: str) -> pd.DataFrame:
+        """Map slim CHANGED view back to full rows; optional OLD_ADDRESS text in REMARKS."""
+        rows = []
+        df_full = df_full.copy()
+        df_full["ID"] = pd.to_numeric(df_full["ID"], errors="coerce")
+
+        addr_col = "ADDRESS (NEW ADDRESS)"
+        if addr_col not in edited.columns and "UPDATED_ADDRESS" in edited.columns:
+            addr_col = "UPDATED_ADDRESS"
+
+        for _, er in edited.iterrows():
+            eid = pd.to_numeric(er.get("ID"), errors="coerce")
+            new_addr = er.get(addr_col)
+            old_addr = er.get("OLD_ADDRESS", "")
+
+            if pd.notna(eid):
+                match = df_full[df_full["ID"] == int(eid)]
+                if match.empty:
+                    continue
+                base = match.iloc[0].to_dict()
+                base["BRANCH_NAME"] = er.get("BRANCH_NAME", base.get("BRANCH_NAME"))
+                base["UPDATED_ADDRESS"] = new_addr
+                base["STATUS"] = "CHANGED"
+                extra = ""
+                if old_addr is not None and str(old_addr).strip() != "":
+                    extra = f" | Previous address (from view): {old_addr}"
+                base["REMARKS"] = f"{remark}{extra}"
+                base["COMPANY"] = company
+                rows.append(base)
+            else:
+                extra = ""
+                if old_addr is not None and str(old_addr).strip() != "":
+                    extra = f" | Previous address (from view): {old_addr}"
+                rows.append(
+                    {
+                        "ID": None,
+                        "COMPANY": company,
+                        "TIN": er.get("TIN"),
+                        "BRANCH_CODE": er.get("BRANCH_CODE"),
+                        "RDO": er.get("RDO"),
+                        "AREA": er.get("AREA"),
+                        "BRANCH_NAME": er.get("BRANCH_NAME"),
+                        "UPDATED_ADDRESS": new_addr,
+                        "STATUS": "CHANGED",
+                        "DATE_OPEN": er.get("DATE_OPEN"),
+                        "DATE_OF_CLOSURE": er.get("DATE_OF_CLOSURE"),
+                        "REMARKS": f"{remark}{extra}",
+                    }
+                )
+
+        return pd.DataFrame(rows)
+
     if "company" in st.session_state:
         company = st.session_state.company
-
-        def load_data(company):
-            conn, cursor = get_cursor()
-            cursor.execute("""
-                SELECT *
-                FROM BRANCH_TIN_ADDRESS
-                WHERE COMPANY = %s
-            """, (company,))
-            data = cursor.fetchall()
-
-            cols = [
-                "ID","COMPANY","TIN","BRANCH_CODE","RDO","AREA",
-                "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
-                "DATE_OPEN","DATE_OF_CLOSURE"
-            ]
-
-            return pd.DataFrame(data, columns=cols)
-
         df = load_data(company)
 
-        # =========================
-        # 🟢 MAIN TABLE
-        # =========================
         st.subheader(f"{company} Full Branch Table")
 
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
             use_container_width=True,
-            key=f"{company}_main_editor"
+            key=f"{company}_main_editor",
+            column_config={
+                "REMARKS": st.column_config.TextColumn("Remarks", max_chars=1000),
+            },
         )
 
         if st.button("💾 Save Changes (Main Table)"):
             edited_df = edited_df.copy()
-
-            # 🔹 Force all rows to belong to the active company
-            edited_df["COMPANY"] = (
-                edited_df["COMPANY"]
-                .fillna(company)
-                .replace("", company)
-            )
-
-            # 🔹 Clean NaNs → None for DB
+            edited_df["COMPANY"] = edited_df["COMPANY"].fillna(company).replace("", company)
             edited_df = edited_df.where(pd.notnull(edited_df), None)
 
             handle_save_with_id(
@@ -1226,78 +1357,157 @@ def branch_tin_address():
                 table_name="BRANCH_TIN_ADDRESS",
                 df=edited_df,
                 id_col="ID",
-                insert_sql="""
-                    INSERT INTO BRANCH_TIN_ADDRESS
-                    (COMPANY,TIN,BRANCH_CODE,RDO,AREA,BRANCH_NAME,UPDATED_ADDRESS,STATUS,DATE_OPEN,DATE_OF_CLOSURE)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                update_sql="""
-                    UPDATE BRANCH_TIN_ADDRESS
-                    SET
-                        COMPANY=%s,
-                        TIN=%s,
-                        BRANCH_CODE=%s,
-                        RDO=%s,
-                        AREA=%s,
-                        BRANCH_NAME=%s,
-                        UPDATED_ADDRESS=%s,
-                        STATUS=%s,
-                        DATE_OPEN=%s,
-                        DATE_OF_CLOSURE=%s
-                    WHERE ID=%s
-                """,
-                insert_cols=[
-                    "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
-                    "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
-                    "DATE_OPEN","DATE_OF_CLOSURE"
-                ],
-                update_cols=[
-                    "COMPANY","TIN","BRANCH_CODE","RDO","AREA",
-                    "BRANCH_NAME","UPDATED_ADDRESS","STATUS",
-                    "DATE_OPEN","DATE_OF_CLOSURE"
-                ],
+                insert_sql=insert_sql,
+                update_sql=update_sql,
+                insert_cols=insert_cols,
+                update_cols=update_cols,
             )
-
             st.success("Saved Main Table ✅")
             safe_rerun()
 
         st.divider()
 
-        # =========================
-        # 🆕 NEW VIEW
-        # =========================
         if st.session_state.view_mode == "NEW":
             st.subheader("🆕 NEW BRANCH ADDRESS")
 
             df_new = df[df["STATUS"] == "NEW"].copy()
-            df_new["ADDRESS"] = df_new["UPDATED_ADDRESS"]
+            if df_new.empty:
+                df_new = pd.DataFrame(
+                    columns=[
+                        "ID",
+                        "COMPANY",
+                        "BRANCH_NAME",
+                        "ADDRESS",
+                        "DATE_OPEN",
+                        "TIN",
+                        "BRANCH_CODE",
+                        "RDO",
+                        "AREA",
+                    ]
+                )
+            else:
+                df_new["ADDRESS"] = df_new["UPDATED_ADDRESS"]
 
-            st.data_editor(
-                df_new[["COMPANY","BRANCH_NAME","ADDRESS","DATE_OPEN"]],
+            show_cols = [
+                c
+                for c in [
+                    "ID",
+                    "COMPANY",
+                    "BRANCH_NAME",
+                    "ADDRESS",
+                    "DATE_OPEN",
+                    "AREA",
+                    "TIN",
+                    "BRANCH_CODE",
+                    "RDO",
+                ]
+                if c in df_new.columns or c in ["ID", "COMPANY", "BRANCH_NAME", "ADDRESS", "DATE_OPEN", "AREA", "TIN", "BRANCH_CODE", "RDO"]
+            ]
+            for c in ["ID", "COMPANY", "BRANCH_NAME", "ADDRESS", "DATE_OPEN", "AREA", "TIN", "BRANCH_CODE", "RDO"]:
+                if c not in df_new.columns:
+                    df_new[c] = None
+
+            edited_new = st.data_editor(
+                df_new[
+                    [
+                        "ID",
+                        "COMPANY",
+                        "BRANCH_NAME",
+                        "ADDRESS",
+                        "DATE_OPEN",
+                        "AREA",
+                        "TIN",
+                        "BRANCH_CODE",
+                        "RDO",
+                    ]
+                ],
                 num_rows="dynamic",
                 use_container_width=True,
-                key=f"{company}_new_editor"
+                key=f"{company}_new_editor",
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", format="%d", step=1),
+                    "DATE_OPEN": st.column_config.DateColumn("Date Open"),
+                },
             )
 
-        # =========================
-        # 🔁 CHANGED VIEW
-        # =========================
+            if st.button("💾 Save Changes (NEW Branch View)", key=f"{company}_save_new"):
+                to_save = merge_new_view_to_full(df, edited_new, company, REMARK_NEW_VIEW)
+                to_save = to_save.where(pd.notnull(to_save), None)
+                handle_save_with_id(
+                    df_name_prefix=f"{company}_main",
+                    table_name="BRANCH_TIN_ADDRESS",
+                    df=to_save,
+                    id_col="ID",
+                    insert_sql=insert_sql,
+                    update_sql=update_sql,
+                    insert_cols=insert_cols,
+                    update_cols=update_cols,
+                )
+                st.success("NEW branch view saved ✅")
+                safe_rerun()
+
         if st.session_state.view_mode == "CHANGED":
             st.subheader("🔁 CHANGED ADDRESS")
 
             df_changed = df[df["STATUS"] == "CHANGED"].copy()
-
             if "OLD_ADDRESS" not in df_changed.columns:
                 df_changed["OLD_ADDRESS"] = ""
 
             df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
 
-            st.data_editor(
-                df_changed[["COMPANY","BRANCH_NAME","ADDRESS (NEW ADDRESS)","OLD_ADDRESS"]],
+            for c in [
+                "ID",
+                "COMPANY",
+                "BRANCH_NAME",
+                "ADDRESS (NEW ADDRESS)",
+                "OLD_ADDRESS",
+                "AREA",
+                "TIN",
+                "BRANCH_CODE",
+                "RDO",
+                "DATE_OPEN",
+                "DATE_OF_CLOSURE",
+            ]:
+                if c not in df_changed.columns:
+                    df_changed[c] = None
+
+            edited_ch = st.data_editor(
+                df_changed[
+                    [
+                        "ID",
+                        "COMPANY",
+                        "BRANCH_NAME",
+                        "ADDRESS (NEW ADDRESS)",
+                        "OLD_ADDRESS",
+                        "AREA",
+                        "TIN",
+                        "BRANCH_CODE",
+                        "RDO",
+                    ]
+                ],
                 num_rows="dynamic",
                 use_container_width=True,
-                key=f"{company}_changed_editor"
+                key=f"{company}_changed_editor",
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", format="%d", step=1),
+                },
             )
+
+            if st.button("💾 Save Changes (Changed Address View)", key=f"{company}_save_changed"):
+                to_save = merge_changed_view_to_full(df, edited_ch, company, REMARK_CHANGED_VIEW)
+                to_save = to_save.where(pd.notnull(to_save), None)
+                handle_save_with_id(
+                    df_name_prefix=f"{company}_main",
+                    table_name="BRANCH_TIN_ADDRESS",
+                    df=to_save,
+                    id_col="ID",
+                    insert_sql=insert_sql,
+                    update_sql=update_sql,
+                    insert_cols=insert_cols,
+                    update_cols=update_cols,
+                )
+                st.success("Changed address view saved ✅")
+                safe_rerun()
 # ---------------------------------------------------
 # BUSINESS PERMITS (UPDATE-ONLY, NO DELETE)
 # ---------------------------------------------------
