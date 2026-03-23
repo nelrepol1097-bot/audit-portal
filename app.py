@@ -2647,25 +2647,26 @@ def dashboard_analytics():
             "SEC_CERT","GROSS_SALES_CERT"
         ])
     else:
-        df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
-        df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
+    df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
+    df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
 
-        df["FINAL_DEADLINE"] = (
-            df["DEADLINE_EXTENSION"]
-            .fillna(df["DEADLINE"])
-            .dt.date
-        )
+    df["FINAL_DEADLINE"] = (
+        df["DEADLINE_EXTENSION"]
+        .fillna(df["DEADLINE"])
+        .dt.date
+    )
 
-df["SLA"] = df["FINAL_DEADLINE"].apply(
-    lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
-)
-        df["SEC_CERT"] = df.get("SEC_CERT", "")
-        df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
-        df["RISK"] = (
-            (df["SLA"] == "LATE") * 40 +
-            (df["SEC_CERT"].fillna("") == "PENDING") * 30 +
-            (df["GROSS_SALES_CERT"].isna()) * 30
-        )
+    df["SLA"] = df["FINAL_DEADLINE"].apply(
+        lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
+    )
+
+    df["SEC_CERT"] = df.get("SEC_CERT", "")
+    df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
+    df["RISK"] = (
+        (df["SLA"] == "LATE") * 40
+        + (df["SEC_CERT"].fillna("") == "PENDING") * 30
+        + (df["GROSS_SALES_CERT"].isna()) * 30
+    )
 
     # ========================= TOP KPIs =========================
     if df.empty or "SLA" not in df.columns:
