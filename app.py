@@ -2640,13 +2640,13 @@ def dashboard_analytics():
     today = datetime.today().date()
 
     # ========================= SAFE DEFAULT / BUILD =========================
-    if df.empty:
-        df = pd.DataFrame(columns=[
-            "COMPANY","AREA","BRANCH",
-            "FINAL_DEADLINE","SLA","RISK",
-            "SEC_CERT","GROSS_SALES_CERT"
-        ])
-    else:
+if df.empty:
+    df = pd.DataFrame(columns=[
+        "COMPANY", "AREA", "BRANCH",
+        "FINAL_DEADLINE", "SLA", "RISK",
+        "SEC_CERT", "GROSS_SALES_CERT"
+    ])
+else:
     df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
     df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
 
@@ -2667,7 +2667,6 @@ def dashboard_analytics():
         + (df["SEC_CERT"].fillna("") == "PENDING") * 30
         + (df["GROSS_SALES_CERT"].isna()) * 30
     )
-
     # ========================= TOP KPIs =========================
     if df.empty or "SLA" not in df.columns:
         total = late = high_risk = rate = 0
