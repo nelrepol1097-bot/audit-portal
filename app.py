@@ -2648,13 +2648,13 @@ def dashboard_analytics():
         ])
     else:
         df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
-df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
+        df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
 
-df["FINAL_DEADLINE"] = (
-    df["DEADLINE_EXTENSION"]
-    .fillna(df["DEADLINE"])
-    .dt.date
-)
+        df["FINAL_DEADLINE"] = (
+            df["DEADLINE_EXTENSION"]
+            .fillna(df["DEADLINE"])
+            .dt.date
+        )
 
 df["SLA"] = df["FINAL_DEADLINE"].apply(
     lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
