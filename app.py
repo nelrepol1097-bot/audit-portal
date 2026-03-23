@@ -1163,17 +1163,13 @@ def branch_tin_address():
             date_cols = []
 
         out = df.copy().astype(object)
-
-        # Clean all values first
         out = out.applymap(_clean_scalar)
 
-        # Parse date columns strictly into python date or None
         for c in date_cols:
             if c in out.columns:
                 out[c] = pd.to_datetime(out[c], errors="coerce").dt.date
                 out[c] = out[c].apply(_clean_scalar)
 
-        # Normalize ID: int or None
         if "ID" in out.columns:
             out["ID"] = pd.to_numeric(out["ID"], errors="coerce")
             out["ID"] = out["ID"].apply(lambda x: int(x) if pd.notna(x) else None)
@@ -1389,6 +1385,35 @@ def branch_tin_address():
         out = _ensure_columns(out, full_cols)
         return _sanitize_for_db(out, date_cols=["DATE_OPEN", "DATE_OF_CLOSURE"])
 
+    def _merge_partial_into_full(df_full: pd.DataFrame, df_partial: pd.DataFrame) -> pd.DataFrame:
+        """
+        Merge sub-view payload (NEW/CHANGED) into full table snapshot so
+        handle_save_with_id doesn't treat hidden rows as deletions.
+        """
+        full = _ensure_columns(df_full, full_cols).copy().astype(object)
+        part = _ensure_columns(df_partial, full_cols).copy().astype(object)
+
+        full["ID"] = pd.to_numeric(full["ID"], errors="coerce")
+        part["ID"] = pd.to_numeric(part["ID"], errors="coerce")
+
+        if full.empty:
+            merged = part
+        else:
+            merged = full.copy()
+            id_to_idx = {}
+            for i, rid in enumerate(merged["ID"]):
+                if pd.notna(rid):
+                    id_to_idx[int(rid)] = i
+
+            for _, prow in part.iterrows():
+                pid = prow.get("ID")
+                if pd.notna(pid) and int(pid) in id_to_idx:
+                    merged.loc[id_to_idx[int(pid)], full_cols] = prow[full_cols].values
+                else:
+                    merged = pd.concat([merged, pd.DataFrame([prow[full_cols]])], ignore_index=True)
+
+        return _sanitize_for_db(merged, date_cols=["DATE_OPEN", "DATE_OF_CLOSURE"])
+
     # ---------- MAIN table ----------
     st.subheader(f"{company} Full Branch Table")
 
@@ -1465,7 +1490,9 @@ def branch_tin_address():
         )
 
         if st.button("💾 Save Changes (NEW Branch View)", key=f"{company}_save_new"):
-            to_save = merge_new_view_to_full(df, edited_new)
+            partial_save = merge_new_view_to_full(df, edited_new)
+            to_save = _merge_partial_into_full(df, partial_save)
+
             handle_save_with_id(
                 df_name_prefix=key_prefix,
                 table_name="BRANCH_TIN_ADDRESS",
@@ -1509,7 +1536,9 @@ def branch_tin_address():
         )
 
         if st.button("💾 Save Changes (Changed Address View)", key=f"{company}_save_changed"):
-            to_save = merge_changed_view_to_full(df, edited_ch)
+            partial_save = merge_changed_view_to_full(df, edited_ch)
+            to_save = _merge_partial_into_full(df, partial_save)
+
             handle_save_with_id(
                 df_name_prefix=key_prefix,
                 table_name="BRANCH_TIN_ADDRESS",
