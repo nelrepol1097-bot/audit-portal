@@ -2632,7 +2632,7 @@ def dashboard_analytics():
                SEC_CERT, GROSS_SALES_CERT
         FROM BUSINESS_PERMIT_OVERVIEW
         """)
-        cols = ["COMPANY","AREA","BRANCH","DEADLINE","DEADLINE_EXTENSION","SEC_CERT","GROSS_SALES_CERT"]
+        cols = ["COMPANY", "AREA", "BRANCH", "DEADLINE", "DEADLINE_EXTENSION", "SEC_CERT", "GROSS_SALES_CERT"]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
     df = load_bp_data()
@@ -2640,33 +2640,34 @@ def dashboard_analytics():
     today = datetime.today().date()
 
     # ========================= SAFE DEFAULT / BUILD =========================
-if df.empty:
-    df = pd.DataFrame(columns=[
-        "COMPANY", "AREA", "BRANCH",
-        "FINAL_DEADLINE", "SLA", "RISK",
-        "SEC_CERT", "GROSS_SALES_CERT"
-    ])
-else:
-    df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
-    df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
+    if df.empty:
+        df = pd.DataFrame(columns=[
+            "COMPANY", "AREA", "BRANCH",
+            "FINAL_DEADLINE", "SLA", "RISK",
+            "SEC_CERT", "GROSS_SALES_CERT"
+        ])
+    else:
+        df["DEADLINE"] = pd.to_datetime(df.get("DEADLINE"), errors="coerce")
+        df["DEADLINE_EXTENSION"] = pd.to_datetime(df.get("DEADLINE_EXTENSION"), errors="coerce")
 
-    df["FINAL_DEADLINE"] = (
-        df["DEADLINE_EXTENSION"]
-        .fillna(df["DEADLINE"])
-        .dt.date
-    )
+        df["FINAL_DEADLINE"] = (
+            df["DEADLINE_EXTENSION"]
+            .fillna(df["DEADLINE"])
+            .dt.date
+        )
 
-    df["SLA"] = df["FINAL_DEADLINE"].apply(
-        lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
-    )
+        df["SLA"] = df["FINAL_DEADLINE"].apply(
+            lambda d: "LATE" if pd.notna(d) and d < today else "ON_TIME"
+        )
 
-    df["SEC_CERT"] = df.get("SEC_CERT", "")
-    df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
-    df["RISK"] = (
-        (df["SLA"] == "LATE") * 40
-        + (df["SEC_CERT"].fillna("") == "PENDING") * 30
-        + (df["GROSS_SALES_CERT"].isna()) * 30
-    )
+        df["SEC_CERT"] = df.get("SEC_CERT", "")
+        df["GROSS_SALES_CERT"] = df.get("GROSS_SALES_CERT", None)
+        df["RISK"] = (
+            (df["SLA"] == "LATE") * 40
+            + (df["SEC_CERT"].fillna("") == "PENDING") * 30
+            + (df["GROSS_SALES_CERT"].isna()) * 30
+        )
+
     # ========================= TOP KPIs =========================
     if df.empty or "SLA" not in df.columns:
         total = late = high_risk = rate = 0
@@ -2837,7 +2838,6 @@ else:
     st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not df.empty:
-        # Status distribution
         status_count = df["SLA"].value_counts().reset_index()
         status_count.columns = ["STATUS", "COUNT"]
 
@@ -2857,7 +2857,6 @@ else:
             showlegend=False,
         )
 
-        # Area performance
         area_perf = df.groupby("AREA").agg(
             TOTAL=("BRANCH", "count"),
             LATE=("SLA", lambda x: (x == "LATE").sum())
@@ -2874,14 +2873,13 @@ else:
             color="COMPLIANCE_RATE",
             color_continuous_scale="Blues",
         )
-        fig_area.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_area.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
         fig_area.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
         )
 
-        # Layout: pie + bar + heatmap stacked visually
         c_left, c_right = st.columns([1, 1.2])
         with c_left:
             st.markdown("##### SLA Distribution")
@@ -2909,13 +2907,12 @@ else:
             plot_bgcolor="rgba(0,0,0,0)",
         )
         st.plotly_chart(fig_heat, use_container_width=True)
-
     else:
         st.warning("No data available for Business Permit Insights")
 
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
-        # ========================= FIRE SAFETY HOLOGRAPHIC REPORT =========================
+    # ========================= FIRE SAFETY HOLOGRAPHIC REPORT =========================
     @st.cache_data(ttl=60, show_spinner=False)
     def load_fire_report_data():
         conn, cursor = get_cursor()
@@ -2949,7 +2946,6 @@ else:
     st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not fire_df.empty:
-        # Normalize values
         fire_df["VALID_UNTIL"] = pd.to_datetime(fire_df["VALID_UNTIL"], errors="coerce").dt.date
         fire_df["STATUS"] = fire_df["STATUS"].fillna("").astype(str).str.strip().str.upper()
         fire_df["REMARKS"] = fire_df["REMARKS"].fillna("NO REMARKS").astype(str).str.strip()
@@ -2959,7 +2955,6 @@ else:
             lambda d: (d - today).days if pd.notna(d) else None
         )
 
-        # Validity state
         def validity_state(days_left):
             if days_left is None:
                 return "NO VALIDITY DATE"
@@ -2973,7 +2968,6 @@ else:
 
         fire_df["VALIDITY_STATE"] = fire_df["DAYS_TO_EXPIRY"].apply(validity_state)
 
-        # KPI counts
         total_fire = len(fire_df)
         expired = (fire_df["VALIDITY_STATE"] == "EXPIRED").sum()
         exp_30 = (fire_df["VALIDITY_STATE"] == "EXPIRING <=30 DAYS").sum()
@@ -2985,7 +2979,6 @@ else:
         f3.metric("Expiring <=30 Days", int(exp_30))
         f4.metric("Valid >90 Days", int(valid_90))
 
-        # Charts row 1: validity donut + status bar
         c_left, c_right = st.columns([1, 1.2])
 
         with c_left:
@@ -3039,7 +3032,6 @@ else:
             )
             st.plotly_chart(fig_status_fire, use_container_width=True)
 
-        # Charts row 2: remarks analysis + area risk
         d_left, d_right = st.columns([1, 1.2])
 
         with d_left:
@@ -3094,7 +3086,6 @@ else:
                 )
                 st.plotly_chart(fig_area_alert, use_container_width=True)
 
-        # Critical table
         st.markdown("##### 🚨 Priority Branches (Expired or Expiring <=30 Days)")
         critical_df = fire_df[
             fire_df["VALIDITY_STATE"].isin(["EXPIRED", "EXPIRING <=30 DAYS"])
@@ -3112,11 +3103,10 @@ else:
                 ],
                 use_container_width=True,
             )
-
     else:
         st.warning("No FIRE_SAFETY data available for report.")
 
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     # ========================= AI RISK INTELLIGENCE & BREAKDOWN =========================
     st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
@@ -3125,7 +3115,6 @@ else:
     st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not df.empty:
-        # Predicted late table
         df["PREDICTED_LATE"] = (df["RISK"] >= 50) | (df["SLA"] == "LATE")
         pred = df[df["PREDICTED_LATE"]]
 
@@ -3135,7 +3124,7 @@ else:
             st.markdown("###### 🔮 Predicted Late Branches")
             st.metric("Predicted Late", len(pred))
             if not pred.empty:
-                st.dataframe(pred[["COMPANY","AREA","BRANCH","RISK"]], use_container_width=True, height=210)
+                st.dataframe(pred[["COMPANY", "AREA", "BRANCH", "RISK"]], use_container_width=True, height=210)
 
         with cB:
             st.markdown("###### 📈 Risk Trend")
@@ -3148,14 +3137,13 @@ else:
             )
             st.plotly_chart(fig_trend, use_container_width=True)
 
-        # Futuristic average risk line
         st.markdown("###### 🌌 Average Risk Over Time")
         futuristic_df = df.groupby("FINAL_DEADLINE")["RISK"].mean().reset_index()
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
-            mode='lines',
+            mode="lines",
             line=dict(color="rgba(56,189,248,0.4)", width=10),
             hoverinfo="skip",
             showlegend=False,
@@ -3163,7 +3151,7 @@ else:
         fig.add_trace(go.Scatter(
             x=futuristic_df["FINAL_DEADLINE"],
             y=futuristic_df["RISK"],
-            mode='lines+markers',
+            mode="lines+markers",
             line=dict(color="#38bdf8", width=3),
             marker=dict(size=7, color="#f97316"),
             name="Avg Risk",
@@ -3176,14 +3164,13 @@ else:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Waterfall breakdown
         st.markdown("###### 🌊 Risk Component Breakdown")
         pending = len(df[df["SEC_CERT"] == "PENDING"]) if "SEC_CERT" in df.columns else 0
         missing = len(df[df["GROSS_SALES_CERT"].isna()]) if "GROSS_SALES_CERT" in df.columns else 0
         fig2 = go.Figure(go.Waterfall(
             name="Risk",
             orientation="v",
-            x=["Late","Pending SEC","Missing Gross Sales","Total"],
+            x=["Late", "Pending SEC", "Missing Gross Sales", "Total"],
             y=[late, pending, missing, total]
         ))
         fig2.update_layout(
@@ -3195,7 +3182,7 @@ else:
     else:
         st.info("No data available for AI risk intelligence.")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ========================= AREA DRILLDOWN =========================
     st.markdown('<div class="holo-panel">', unsafe_allow_html=True)
@@ -3220,9 +3207,9 @@ else:
     else:
         st.info("No area level data available.")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        # ========================= TIN & ADDRESS HOLOGRAPHIC REPORT =========================
+    # ========================= TIN & ADDRESS HOLOGRAPHIC REPORT =========================
     @st.cache_data(ttl=60, show_spinner=False)
     def load_tin_address_report():
         conn, cursor = get_cursor()
@@ -3254,13 +3241,11 @@ else:
     st.markdown('<div class="panel-body">', unsafe_allow_html=True)
 
     if not tin_df.empty:
-        # Normalize
         tin_df["COMPANY"] = tin_df["COMPANY"].fillna("").astype(str).str.strip().str.upper()
         tin_df["STATUS"] = tin_df["STATUS"].fillna("").astype(str).str.strip().str.upper()
         tin_df["DATE_OPEN"] = pd.to_datetime(tin_df["DATE_OPEN"], errors="coerce")
         tin_df["DATE_OF_CLOSURE"] = pd.to_datetime(tin_df["DATE_OF_CLOSURE"], errors="coerce")
 
-        # KPI metrics
         total_branches_tin = len(tin_df)
         new_branches = (tin_df["STATUS"] == "NEW").sum()
         changed_addr = (tin_df["STATUS"] == "CHANGED").sum()
@@ -3272,7 +3257,6 @@ else:
         t3.metric("CHANGED Address", int(changed_addr))
         t4.metric("Closed Branches", int(closed_branches))
 
-        # ---------- Branch footprint per company ----------
         st.markdown("##### Branch Footprint by Company")
         comp_counts = tin_df.groupby("COMPANY")["BRANCH_NAME"].nunique().reset_index(name="BRANCH_COUNT")
 
@@ -3294,11 +3278,8 @@ else:
         )
         st.plotly_chart(fig_comp, use_container_width=True)
 
-        # ---------- NEW / CHANGED / CLOSED mix per company ----------
         st.markdown("##### Status Mix per Company (NEW · CHANGED · CLOSED · ACTIVE)")
-        tin_df["STATUS_GROUP"] = tin_df["STATUS"].replace(
-            {"": "ACTIVE"}  # treat blank as ACTIVE
-        )
+        tin_df["STATUS_GROUP"] = tin_df["STATUS"].replace({"": "ACTIVE"})
 
         status_mix = (
             tin_df
@@ -3323,10 +3304,8 @@ else:
         )
         st.plotly_chart(fig_mix, use_container_width=True)
 
-        # ---------- Holographic timeline: openings vs closures ----------
         st.markdown("##### Holographic Branch Timeline (Open vs Closed)")
 
-        # Openings per month
         open_ts = (
             tin_df.dropna(subset=["DATE_OPEN"])
             .assign(OPEN_MONTH=lambda d: d["DATE_OPEN"].dt.to_period("M").dt.to_timestamp())
@@ -3334,7 +3313,6 @@ else:
             .reset_index(name="OPENED")
         )
 
-        # Closures per month
         close_ts = (
             tin_df.dropna(subset=["DATE_OF_CLOSURE"])
             .assign(CLOSE_MONTH=lambda d: d["DATE_OF_CLOSURE"].dt.to_period("M").dt.to_timestamp())
@@ -3377,7 +3355,6 @@ else:
         )
         st.plotly_chart(fig_timeline, use_container_width=True)
 
-        # ---------- Advanced insight table ----------
         st.markdown("##### 🔍 Advanced Insight – NEW / CHANGED / CLOSED Details")
 
         insight_df = tin_df[
@@ -3387,7 +3364,6 @@ else:
         if insight_df.empty:
             st.info("No NEW / CHANGED / CLOSED branch records yet.")
         else:
-            # Sort: newest changes first
             insight_df["LAST_EVENT_DATE"] = insight_df[["DATE_OPEN", "DATE_OF_CLOSURE"]].max(axis=1)
             insight_df = insight_df.sort_values("LAST_EVENT_DATE", ascending=False)
 
@@ -3397,11 +3373,10 @@ else:
                 ],
                 use_container_width=True,
             )
-
     else:
         st.warning("No TIN & Address data available for report.")
 
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     # ========================= RAW DATA =========================
     st.subheader("📋 Underlying Data View")
