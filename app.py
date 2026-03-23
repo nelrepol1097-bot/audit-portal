@@ -1532,11 +1532,9 @@ def branch_tin_address():
 # ---------------------------------------------------
 def business_permits():
     st.title("🏢 Business Permits Report")
-
     tab1, tab2, tab3, tab4 = st.tabs(
         ["Overview", "Business Permit", "Brgy Permit", "Other Fees for Renew"]
     )
-
     # Local value sanitizers so this function is self-contained.
     def _db_param(value):
         if value is None:
@@ -1554,7 +1552,6 @@ def business_permits():
         except (TypeError, ValueError):
             pass
         return value
-
     def _db_date(value):
         v = _db_param(value)
         if v is None:
@@ -1567,7 +1564,6 @@ def business_permits():
         if pd.isna(ts):
             return None
         return ts.date()
-
     @st.cache_data(ttl=30, show_spinner=False)
     def load_data(data_type):
         conn, cursor = get_cursor()
@@ -1610,7 +1606,6 @@ def business_permits():
             "REASON_NOT_REQUESTING_FUND",
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
-
     @st.cache_data(ttl=30, show_spinner=False)
     def load_overview():
         conn, cursor = get_cursor()
@@ -1641,21 +1636,17 @@ def business_permits():
             "GROSS_SALES_CERT",
         ]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
-
     def save_overview(df):
         conn, cursor = get_cursor()
         skipped_rows = 0
-
         for _, row in df.iterrows():
             company = _db_param(row["COMPANY"])
             area = _db_param(row["AREA"])
             branch = _db_param(row["BRANCH"])
-
             # required keys
             if not company or not area or not branch:
                 skipped_rows += 1
                 continue
-
             cursor.execute(
                 """
                 MERGE INTO BUSINESS_PERMIT_OVERVIEW t
@@ -1698,28 +1689,22 @@ def business_permits():
                     _db_param(row["GROSS_SALES_CERT"]),
                 ),
             )
-
         conn.commit()
-
         if skipped_rows:
             st.warning(
                 f"Skipped {skipped_rows} row(s): COMPANY, AREA, and BRANCH are required."
             )
-
     def update_data(df, data_type):
         conn, cursor = get_cursor()
         skipped_rows = 0
-
         for _, row in df.iterrows():
             company = _db_param(row["COMPANY"])
             area = _db_param(row["AREA"])
             branch = _db_param(row["BRANCH"])
-
             # required keys
             if not company or not area or not branch:
                 skipped_rows += 1
                 continue
-
             cursor.execute(
                 """
                 MERGE INTO BUSINESS_PERMIT_TRACKER t
@@ -1789,14 +1774,11 @@ def business_permits():
                     _db_param(row["REASON_NOT_REQUESTING_FUND"]),
                 ),
             )
-
         conn.commit()
-
         if skipped_rows:
             st.warning(
                 f"Skipped {skipped_rows} row(s): COMPANY, AREA, and BRANCH are required."
             )
-
     def render_editor(df, key):
         return st.data_editor(
             df,
@@ -1820,10 +1802,8 @@ def business_permits():
                 "REASON_NOT_REQUESTING_FUND": "Reason",
             },
         )
-
     with tab1:
         st.subheader("Overview Form")
-
         df = load_overview()
         edited_df = st.data_editor(
             df,
@@ -1847,46 +1827,38 @@ def business_permits():
                 ),
             },
         )
-
         if st.button("💾 Save Overview"):
             save_overview(edited_df)
             load_overview.clear()
             st.success("Overview Updated ✅")
             safe_rerun()
-
     with tab2:
         st.subheader("Business Permit")
         df = load_data("BUSINESS_PERMIT")
         edited_df = render_editor(df, "business_tab")
-
         if st.button("💾 Save Business Permit"):
             update_data(edited_df, "BUSINESS_PERMIT")
             load_data.clear()
             st.success("Saved ✅")
             safe_rerun()
-
     with tab3:
         st.subheader("Barangay Permit")
         df = load_data("BRGY_PERMIT")
         edited_df = render_editor(df, "brgy_tab")
-
         if st.button("💾 Save Brgy Permit"):
             update_data(edited_df, "BRGY_PERMIT")
             load_data.clear()
             st.success("Saved ✅")
             safe_rerun()
-
     with tab4:
         st.subheader("Other Fees for Renew")
         df = load_data("OTHER_FEES")
         edited_df = render_editor(df, "other_tab")
-
         if st.button("💾 Save Other Fees"):
             update_data(edited_df, "OTHER_FEES")
             load_data.clear()
             st.success("Saved ✅")
             safe_rerun()
-
 def tax_mapped():
     import base64
 
