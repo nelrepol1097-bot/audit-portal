@@ -267,6 +267,9 @@ if file:
     col_gender = find_col(["GENDER", "SEX"])
     col_civil = find_col(["CIVIL STATUS", "MARITAL STATUS", "CIVIL", "MARITAL"])
     col_role_level = find_col(["ROLE LEVEL", "JOB LEVEL", "GRADE", "BAND"])
+    col_hire_date = find_col(["DATE HIRED", "HIRE DATE", "DATE OF HIRE", "JOINING DATE", "DATE JOINED", "START DATE"])
+    col_resign_date = find_col(["RESIGNATION DATE", "DATE RESIGNED", "RESIGNED DATE", "SEPARATION DATE", "TERMINATION DATE", "END DATE"])
+    col_leave_reason = find_col(["REASON FOR LEAVING", "REASON OF LEAVING", "EXIT REASON", "SEPARATION REASON", "REASON FOR RESIGNATION", "REASON"])
 
     def detect_hr_date_column(frame):
         """Pick the best column for calendar filtering (hire / join / start / effective dates)."""
@@ -747,7 +750,7 @@ if file:
                   <div class="robot-scan"></div>
                   <div class="robot-particles"></div>
                   <div class="robot-flicker"></div>
-                  <div class="robot-title">HR ASSISTANT</div>
+                  <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
                   <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
                   <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
                   <div class="robot-stage"><div class="robot-inner"><img class="robot-img" src="{robot_img_uri}" alt="HR Robot" /></div></div>
@@ -914,15 +917,73 @@ if file:
             st.session_state.robot_auto_speak = False
         if "robot_pending_speech" not in st.session_state:
             st.session_state.robot_pending_speech = ""
+        if "robot_last_table_request" not in st.session_state:
+            st.session_state.robot_last_table_request = None
+        if "robot_last_employee_name" not in st.session_state:
+            st.session_state.robot_last_employee_name = ""
 
         def robot_answer(query, fdf):
             q = str(query).strip().lower()
             if not q:
                 return "Please type a question so I can help."
+
+            def extract_name_from_query(qtxt):
+                patterns = [
+                    r"(?:employee details of|show employee details of|details of)\s+(.+)$",
+                    r"(?:what year.*(?:employee|for)\s+)(.+?)(?:\s+hire|\s+hired|\s+resign|\s+resigned|$)",
+                    r"(?:what year)\s+(.+?)(?:\s+hire|\s+hired|\s+resign|\s+resigned|$)",
+                    r"(?:reason for leaving of)\s+(.+)$",
+                    r"(?:leaving reason of)\s+(.+)$",
+                    r"(?:for)\s+(.+)$",
+                ]
+                for pat in patterns:
+                    m = re.search(pat, qtxt)
+                    if m:
+                        cand = m.group(1).strip(" .,:;")
+                        if cand:
+                            return cand
+                return ""
+
+            def find_emp_rows(name_like):
+                if not col_name or not name_like:
+                    return fdf.iloc[0:0]
+                name_series = fdf[col_name].astype(str).str.strip()
+                hit = fdf[name_series.str.lower().str.contains(re.escape(name_like.lower()), na=False)]
+                if not hit.empty:
+                    return hit
+                # Fallback to full HR dataset so questions still work even when dashboard filters hide the person.
+                full_series = df[col_name].astype(str).str.strip()
+                return df[full_series.str.lower().str.contains(re.escape(name_like.lower()), na=False)]
+
+            def get_year_from_col(row, col):
+                if not col or col not in row.index:
+                    return None
+                dt = pd.to_datetime(row[col], errors="coerce")
+                return int(dt.year) if pd.notna(dt) else None
+
+            if col_dept and (
+                ("employee" in q and ("detail" in q or "datail" in q or "report" in q) and ("from" in q or "of" in q))
+                or ("department" in q and ("show" in q or "report" in q))
+            ):
+                m_dep = re.search(r"(?:from|of)\s+(.+)$", q)
+                if m_dep:
+                    dep_raw = m_dep.group(1).strip()
+                    dep_raw = re.sub(r"\(.*?department.*?\)", "", dep_raw, flags=re.I).strip()
+                    dep_raw = re.sub(r"\s+", " ", dep_raw).strip(" .,:;")
+                    if dep_raw:
+                        dser = fdf[col_dept].astype(str).str.strip()
+                        hit = fdf[dser.str.lower().str.contains(re.escape(dep_raw), na=False)]
+                        if hit.empty:
+                            return (
+                                f"I could not find department '{dep_raw}' in the current filtered data. "
+                                "Try exact department spelling."
+                            )
+                        return f"show_data_dept::{dep_raw}"
             if ("employee details of" in q or "show employee details of" in q or "details of" in q) and col_name:
                 m = re.search(r"(?:employee details of|show employee details of|details of)\s+(.+)$", q)
                 target_name = m.group(1).strip() if m else ""
                 if target_name:
+                    st.session_state.robot_last_employee_name = target_name
                     name_series = fdf[col_name].astype(str).str.strip()
                     hit = fdf[name_series.str.lower().str.contains(re.escape(target_name), na=False)]
                     if hit.empty:
@@ -944,6 +1005,40 @@ if file:
                             + "\nAsk 'show employee details' if you want the table view."
                         )
                     return f"I found {len(hit)} matching record(s) for '{target_name}'. Ask 'show employee details' for table view."
+            if (
+                ("hire" in q or "hired" in q or "joined" in q or "resign" in q or "resigned" in q)
+                or ("reason for leaving" in q or "leaving reason" in q or ("reason" in q and "leave" in q))
+            ):
+                target_name = extract_name_from_query(q) or st.session_state.get("robot_last_employee_name", "")
+                if not target_name:
+                    return "Please include the employee name, e.g. 'What year was Jakeville M Casaria hired?'"
+                hit = find_emp_rows(target_name)
+                if hit.empty:
+                    return f"I could not find employee '{target_name}' in the current filtered data."
+                st.session_state.robot_last_employee_name = target_name
+                row = hit.iloc[0]
+                person = str(row[col_name]) if col_name in row.index else target_name
+                out = [f"Employee: {person}."]
+                if "hire" in q or "hired" in q or "joined" in q:
+                    hy = get_year_from_col(row, col_hire_date) or get_year_from_col(row, col_date_filter)
+                    out.append(
+                        f"Hire year: {hy}." if hy else "Hire year: not available (missing hire date column/value)."
+                    )
+                if "resign" in q or "resigned" in q:
+                    ry = get_year_from_col(row, col_resign_date)
+                    out.append(
+                        f"Resigned year: {ry}." if ry else "Resigned year: not available (missing resignation date column/value)."
+                    )
+                if "reason for leaving" in q or "leaving reason" in q or ("reason" in q and "leave" in q):
+                    if col_leave_reason and col_leave_reason in row.index:
+                        rv = str(row[col_leave_reason]).strip()
+                        if rv and rv.lower() not in ("nan", "none"):
+                            out.append(f"Reason for leaving: {rv}.")
+                        else:
+                            out.append("Reason for leaving: not available.")
+                    else:
+                        out.append("Reason for leaving: not available (no leave-reason column detected).")
+                return " ".join(out)
             if "summary" in q or "report" in q or "dashboard" in q:
                 top_company_txt = ""
                 if col_company and not fdf.empty:
@@ -1061,14 +1156,22 @@ if file:
                 st.session_state.robot_chat.append({"role": "user", "content": user_q})
                 cmd_ans = robot_apply_command(user_q)
                 ans = cmd_ans if cmd_ans else robot_answer(user_q, filtered_df)
+                robot_text = ans
+                if isinstance(ans, str) and ans.startswith("show_data_dept::"):
+                    dep_q = ans.split("::", 1)[1].strip()
+                    st.session_state.robot_last_table_request = {"kind": "dept", "query": dep_q}
+                    robot_text = f"Showing employee report for department matching '{dep_q}' (first 50 rows) below."
+                elif ans == "show_data":
+                    st.session_state.robot_last_table_request = {"kind": "all"}
+                    robot_text = "Showing first 50 rows of your current filtered data below."
                 st.session_state.robot_chat.append(
                     {
                         "role": "assistant",
-                        "content": ans if ans != "show_data" else "Showing first 50 rows of your current filtered data below.",
+                        "content": robot_text,
                     }
                 )
                 if st.session_state.robot_auto_speak:
-                    st.session_state.robot_pending_speech = ans if ans != "show_data" else "Showing first 50 rows of your current filtered data below."
+                    st.session_state.robot_pending_speech = robot_text
                 st.rerun()
 
             if st.session_state.robot_chat:
@@ -1134,8 +1237,16 @@ if file:
                     scrolling=False,
                 )
                 st.session_state.robot_pending_speech = ""
-            if st.session_state.robot_chat and st.session_state.robot_chat[-1]["content"] == "Showing first 50 rows of your current filtered data below.":
-                st.dataframe(filtered_df.head(50), use_container_width=True)
+            if st.session_state.robot_last_table_request:
+                req = st.session_state.robot_last_table_request
+                if req.get("kind") == "dept" and col_dept:
+                    dep_q = str(req.get("query", "")).strip().lower()
+                    if dep_q:
+                        _d = filtered_df[col_dept].astype(str).str.strip()
+                        _hit = filtered_df[_d.str.lower().str.contains(re.escape(dep_q), na=False)]
+                        st.dataframe(_hit.head(50), use_container_width=True)
+                elif req.get("kind") == "all":
+                    st.dataframe(filtered_df.head(50), use_container_width=True)
 
         st.markdown('<div class="glass">', unsafe_allow_html=True)
 
