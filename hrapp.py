@@ -532,6 +532,18 @@ if file:
             except Exception:
                 robot_img_uri = ""
         if not robot_img_uri:
+            chopper_candidates = [
+                r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-09a03331-c5a0-4ad4-a3d1-48f7fb2db8df.png",
+            ]
+            for cp in chopper_candidates:
+                try:
+                    with open(cp, "rb") as f:
+                        robot_img_uri = "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
+                    break
+                except Exception:
+                    robot_img_uri = ""
+
+        if not robot_img_uri:
             robot_img_uri = (
                 "data:image/svg+xml;utf8,"
                 "<svg xmlns='http://www.w3.org/2000/svg' width='700' height='320'>"
@@ -556,16 +568,35 @@ if file:
                     background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
                     box-shadow: inset 0 0 28px rgba(0,234,255,.14), 0 0 16px rgba(0,234,255,.16);
                   }}
+                  .robot-panel::before {{
+                    content: "";
+                    position: absolute;
+                    inset: -30% -20% auto -20%;
+                    height: 68%;
+                    background: radial-gradient(circle, rgba(0,234,255,.34), transparent 64%);
+                    animation: holoPulse 2.5s ease-in-out infinite;
+                    pointer-events: none;
+                  }}
                   .robot-scan {{
                     position:absolute; inset:0;
                     background: repeating-linear-gradient(to bottom, rgba(0,234,255,.08) 0 1px, transparent 1px 7px);
                     pointer-events:none; mix-blend-mode:screen;
                   }}
+                  .robot-flicker {{
+                    position:absolute; inset:0;
+                    background: linear-gradient(180deg, rgba(0,234,255,.08), transparent 40%, rgba(0,234,255,.06));
+                    mix-blend-mode: screen;
+                    pointer-events:none;
+                    animation: flicker 1.9s steps(2, end) infinite;
+                  }}
                   .robot-img {{
                     position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
                     width: min(96%, 500px); height:auto; max-height: 200px; object-fit: contain;
-                    filter: drop-shadow(0 0 16px rgba(0,234,255,.45));
-                    animation: bob 3.4s ease-in-out infinite;
+                    filter: grayscale(0.1) saturate(1.2) hue-rotate(155deg) brightness(1.15) contrast(1.1)
+                            drop-shadow(0 0 7px rgba(0,234,255,.9))
+                            drop-shadow(0 0 20px rgba(0,234,255,.45));
+                    opacity: 0.9;
+                    animation: bob 3.4s ease-in-out infinite, holoJitter 0.18s linear infinite;
                   }}
                   .robot-glow {{
                     position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
@@ -582,15 +613,35 @@ if file:
                     background:rgba(0,234,255,.12); color:#bff8ff; border:1px solid rgba(0,234,255,.52);
                     border-radius:8px; padding:4px 9px; cursor:pointer; font:600 11px Rajdhani,Arial,sans-serif;
                   }}
+                  .robot-btn2 {{
+                    position:absolute; right:10px; top:36px;
+                    background:rgba(168,85,247,.15); color:#f2d8ff; border:1px solid rgba(168,85,247,.6);
+                    border-radius:8px; padding:4px 9px; cursor:pointer; font:600 11px Rajdhani,Arial,sans-serif;
+                  }}
                   @keyframes bob {{
                     0%,100% {{ transform: translateX(-50%) translateY(0px); }}
                     50% {{ transform: translateX(-50%) translateY(-5px); }}
                   }}
+                  @keyframes holoPulse {{
+                    0%,100% {{ opacity: .35; transform: scale(.98); }}
+                    50% {{ opacity: .85; transform: scale(1.04); }}
+                  }}
+                  @keyframes holoJitter {{
+                    0% {{ transform: translateX(-50%) translateY(0px); }}
+                    50% {{ transform: translateX(calc(-50% + 0.6px)) translateY(0px); }}
+                    100% {{ transform: translateX(calc(-50% - 0.6px)) translateY(0px); }}
+                  }}
+                  @keyframes flicker {{
+                    0%,100% {{ opacity: .35; }}
+                    50% {{ opacity: .58; }}
+                  }}
                 </style>
                 <div class="robot-panel">
                   <div class="robot-scan"></div>
+                  <div class="robot-flicker"></div>
                   <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
                   <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
+                  <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
                   <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
                   <div class="robot-glow"></div>
                 </div>
@@ -604,6 +655,15 @@ if file:
                         const en = vs.find(v => /en/i.test(v.lang));
                         if (en) u.voice = en;
                       }}
+                      window.speechSynthesis.cancel();
+                      window.speechSynthesis.speak(u);
+                    }} catch (e) {{}}
+                  }}
+                  function speakReport() {{
+                    try {{
+                      const t = "Here is your HR report. You can ask me for summary, tenure bracket, top company, top branch, and top department.";
+                      const u = new SpeechSynthesisUtterance(t);
+                      u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
                       window.speechSynthesis.cancel();
                       window.speechSynthesis.speak(u);
                     }} catch (e) {{}}
