@@ -242,7 +242,14 @@ if file:
     else:
         col_status = find_col(["CURRENT STATUS", "EMPLOYMENT STATUS", "STATUS"])
     col_age = find_col(["AGE"])
-    col_tenure = find_col(["TENURE"])
+    col_tenure_bracket = find_col(["TENURE BRACKET", "TENURE BAND", "SERVICE BRACKET"])
+    _ex_tenure = {c for c in [col_tenure_bracket] if c}
+    col_tenure = find_col(
+        ["TENURE MO", "TENURE(MO", "MONTH IN TENURE", "TENURE IN MONTH", "MONTHS OF TENURE"],
+        exclude_cols=_ex_tenure,
+    )
+    if not col_tenure:
+        col_tenure = find_col(["TENURE"], exclude_cols=_ex_tenure)
     col_edu = find_col(["EDUCATION"])
     col_dept = find_col(["DEPARTMENT", "DEPT"])
     col_branch = find_col(["BRANCH"])
@@ -254,6 +261,54 @@ if file:
     col_gender = find_col(["GENDER", "SEX"])
     col_civil = find_col(["CIVIL STATUS", "MARITAL STATUS", "CIVIL", "MARITAL"])
     col_role_level = find_col(["ROLE LEVEL", "JOB LEVEL", "GRADE", "BAND"])
+
+    def detect_hr_date_column(frame):
+        """Pick the best column for calendar filtering (hire / join / start / effective dates)."""
+        exclude_name = ("TENURE", "AGE", "SALARY", "AMOUNT", "ZIP", "MOBILE", "PHONE", "COUNT")
+        best_c = None
+        best_score = -1.0
+        for col in frame.columns:
+            u = str(col).upper()
+            if str(col).startswith("_"):
+                continue
+            if any(x in u for x in exclude_name) and "DATE" not in u:
+                continue
+            probe = pd.to_datetime(frame[col], errors="coerce", utc=False)
+            frac = float(probe.notna().mean())
+            if frac < 0.12:
+                continue
+            score = frac * 42.0
+            for kw, w in [
+                ("HIRE", 48),
+                ("JOIN", 42),
+                ("START", 30),
+                ("EFFECTIVE", 30),
+                ("COMMENCE", 30),
+                ("AS OF", 24),
+                ("DATE", 14),
+                ("BIRTH", 10),
+                ("RESIGN", 14),
+                ("END DATE", 12),
+            ]:
+                if kw in u:
+                    score += w
+                    break
+            if score > best_score:
+                best_score = score
+                best_c = col
+        return best_c
+
+    col_date_filter = detect_hr_date_column(df)
+    if col_date_filter:
+        _dt = pd.to_datetime(df[col_date_filter], errors="coerce")
+        try:
+            if getattr(_dt.dt, "tz", None) is not None:
+                _dt = _dt.dt.tz_convert("UTC").dt.tz_localize(None)
+        except (TypeError, ValueError, AttributeError):
+            pass
+        df["_HR_FILTER_DATE"] = _dt.dt.normalize()
+    else:
+        col_date_filter = None
 
     # CLEAN
     if col_status:
@@ -282,15 +337,23 @@ if file:
     if col_age:
         df[col_age] = pd.to_numeric(df[col_age], errors="coerce")
 
-    def clean_tenure(val):
+    def tenure_months_numeric(val):
+        """Parse tenure as months: prefer numeric cells, else first integer in text (e.g. '24 months')."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return np.nan
+        num = pd.to_numeric(val, errors="coerce")
+        if pd.notna(num):
+            return float(num)
         try:
-            n = int(re.findall(r"\d+", str(val))[0])
-            return n
-        except (IndexError, ValueError):
-            return 0
+            digits = re.findall(r"\d+", str(val))
+            if not digits:
+                return np.nan
+            return float(int(digits[0]))
+        except (ValueError, TypeError):
+            return np.nan
 
     if col_tenure:
-        df["TENURE_NUM"] = df[col_tenure].apply(clean_tenure)
+        df["TENURE_NUM"] = df[col_tenure].apply(tenure_months_numeric)
 
     # =========================================================
     # ML
@@ -348,18 +411,53 @@ if file:
 
         st.title("🤖 HR EXECUTIVE DASHBOARD")
 
-        if col_status:
-            workforce_filter = st.radio(
-                "Workforce",
-                ["All", "Active", "Inactive"],
-                horizontal=True,
-                index=0,
-                key="main_dashboard_workforce",
-                help="Filter every KPI and chart below to active employees, inactive only, or everyone.",
-            )
-        else:
-            workforce_filter = "All"
-            st.caption("Add a **CURRENT STATUS** column in HR DATABASE to enable Active / Inactive filtering.")
+        date_sel = None
+        include_blank_dates = False
+
+        row_top = st.columns([1.35, 1.25])
+        with row_top[0]:
+            if col_status:
+                workforce_filter = st.radio(
+                    "Workforce",
+                    ["All", "Active", "Inactive"],
+                    horizontal=True,
+                    index=0,
+                    key="main_dashboard_workforce",
+                    help="Filter every KPI and chart below to active employees, inactive only, or everyone.",
+                )
+            else:
+                workforce_filter = "All"
+                st.caption("Add a **CURRENT STATUS** column in HR DATABASE to enable Active / Inactive filtering.")
+        with row_top[1]:
+            if col_date_filter and "_HR_FILTER_DATE" in df.columns:
+                vd_all = df["_HR_FILTER_DATE"].dropna()
+                if vd_all.empty:
+                    st.caption(f"Column **{col_date_filter}** has no valid dates for filtering.")
+                else:
+                    d_lo = vd_all.min().date()
+                    d_hi = vd_all.max().date()
+                    st.markdown(
+                        f'<p style="margin:0 0 0.35rem 0;font-size:0.9rem;color:#7eeeff;">📅 Date column: '
+                        f'<span style="color:#e0f7ff;">{col_date_filter}</span></p>',
+                        unsafe_allow_html=True,
+                    )
+                    date_sel = st.date_input(
+                        "Filter by date (range)",
+                        value=(d_lo, d_hi),
+                        min_value=d_lo,
+                        max_value=d_hi,
+                        key="main_dashboard_date_range",
+                        help="Choose **start** and **end** on the calendar (year, month, day). "
+                        "Pick the same day twice for a single day. Applies to the date column shown above.",
+                    )
+                    include_blank_dates = st.checkbox(
+                        "Include rows with missing dates",
+                        value=False,
+                        key="main_dashboard_date_include_blank",
+                        help="If unchecked, rows with blank/invalid dates are excluded when the range is narrower than full data.",
+                    )
+            else:
+                st.caption("Add a **date** column (e.g. *Date Hired*, *Joining Date*) to enable the calendar filter.")
 
         search = st.text_input("Search Employee")
         filtered_df = df.copy()
@@ -374,6 +472,22 @@ if file:
             comp = st.selectbox("Company", opts)
             if comp != "All":
                 filtered_df = filtered_df[filtered_df[col_company].astype(str) == comp]
+
+        if col_date_filter and "_HR_FILTER_DATE" in filtered_df.columns and date_sel is not None:
+            vd = filtered_df["_HR_FILTER_DATE"].dropna()
+            if not vd.empty:
+                if isinstance(date_sel, tuple) and len(date_sel) == 2:
+                    d_start, d_end = date_sel[0], date_sel[1]
+                else:
+                    d_start = d_end = date_sel
+                ts_a = pd.Timestamp(d_start).normalize()
+                ts_b = pd.Timestamp(d_end).normalize()
+                dser = filtered_df["_HR_FILTER_DATE"]
+                in_range = (dser >= ts_a) & (dser <= ts_b)
+                if include_blank_dates:
+                    filtered_df = filtered_df.loc[in_range | dser.isna()].copy()
+                else:
+                    filtered_df = filtered_df.loc[in_range].copy()
 
         if col_status:
             _mask_all = compute_active_mask(filtered_df[col_status])
@@ -531,6 +645,120 @@ if file:
             )
             row4b.plotly_chart(chart_layout(fig_rl, "Role level (top 15)"), use_container_width=True)
 
+        if (col_tenure and "TENURE_NUM" in filtered_df.columns) or col_tenure_bracket:
+            st.markdown("##### ⏱️ Active workforce — tenure")
+            if col_status:
+                act_for_tenure = filtered_df.loc[active_mask].copy()
+                st.caption(
+                    "Tenure charts include **active** employees only (same search / company filters as above)."
+                )
+            else:
+                act_for_tenure = filtered_df.copy()
+                st.caption(
+                    "No **CURRENT STATUS** column — tenure charts use **all** filtered rows (not active-only)."
+                )
+
+            def bracket_sort_key(lbl):
+                s = str(lbl).upper().strip()
+                m = re.search(r"(\d+)", s)
+                return (int(m.group(1)), s) if m else (99999, s)
+
+            if col_status and act_for_tenure.empty:
+                st.info("No active employees in the current selection — switch workforce to **All** or **Active**, or adjust filters.")
+            else:
+                has_months = (
+                    col_tenure
+                    and "TENURE_NUM" in act_for_tenure.columns
+                    and act_for_tenure["TENURE_NUM"].notna().any()
+                )
+                has_bracket = False
+                if col_tenure_bracket:
+                    br = act_for_tenure[col_tenure_bracket]
+                    has_bracket = br.notna().any() and br.astype(str).str.strip().ne("").any()
+
+                if has_months and has_bracket:
+                    tcol_a, tcol_b = st.columns(2)
+                    sub_m = act_for_tenure.dropna(subset=["TENURE_NUM"])
+                    nb = int(min(36, max(10, sub_m["TENURE_NUM"].max() - sub_m["TENURE_NUM"].min() + 1)))
+                    fig_tm = px.histogram(
+                        sub_m,
+                        x="TENURE_NUM",
+                        nbins=min(nb, 40),
+                        labels={"TENURE_NUM": "Tenure (months)", "count": "Active headcount"},
+                    )
+                    fig_tm.update_traces(marker_color="#00eaff", marker_line_color="#00eaff")
+                    tcol_a.plotly_chart(
+                        chart_layout(fig_tm, "Active employees — tenure (months)"),
+                        use_container_width=True,
+                    )
+                    vc_br = (
+                        act_for_tenure[col_tenure_bracket]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                    )
+                    vc_br = vc_br[vc_br.str.len() > 0]
+                    if not vc_br.empty:
+                        ord_idx = sorted(vc_br.unique().tolist(), key=bracket_sort_key)
+                        ctab_br = vc_br.value_counts().reindex(ord_idx).dropna()
+                        fig_tb = px.bar(
+                            x=ctab_br.index.astype(str),
+                            y=ctab_br.values,
+                            labels={"x": col_tenure_bracket, "y": "Active headcount"},
+                        )
+                        fig_tb.update_traces(marker_color="#a855f7", marker_line_color="#a855f7")
+                        tcol_b.plotly_chart(
+                            chart_layout(fig_tb, "Active employees — tenure bracket"),
+                            use_container_width=True,
+                        )
+                    else:
+                        tcol_b.caption("Tenure bracket column has no values for this selection.")
+                elif has_months:
+                    sub_m = act_for_tenure.dropna(subset=["TENURE_NUM"])
+                    nb = int(min(36, max(10, sub_m["TENURE_NUM"].max() - sub_m["TENURE_NUM"].min() + 1)))
+                    fig_tm = px.histogram(
+                        sub_m,
+                        x="TENURE_NUM",
+                        nbins=min(nb, 40),
+                        labels={"TENURE_NUM": "Tenure (months)", "count": "Active headcount"},
+                    )
+                    fig_tm.update_traces(marker_color="#00eaff", marker_line_color="#00eaff")
+                    st.plotly_chart(
+                        chart_layout(fig_tm, "Active employees — tenure (months)"),
+                        use_container_width=True,
+                    )
+                    if col_tenure_bracket and not has_bracket:
+                        st.caption(f"**{col_tenure_bracket}** has no values for active employees in this selection.")
+                elif has_bracket:
+                    vc_br = (
+                        act_for_tenure[col_tenure_bracket]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                    )
+                    vc_br = vc_br[vc_br.str.len() > 0]
+                    if not vc_br.empty:
+                        ord_idx = sorted(vc_br.unique().tolist(), key=bracket_sort_key)
+                        ctab_br = vc_br.value_counts().reindex(ord_idx).dropna()
+                        fig_tb = px.bar(
+                            x=ctab_br.index.astype(str),
+                            y=ctab_br.values,
+                            labels={"x": col_tenure_bracket, "y": "Active headcount"},
+                        )
+                        fig_tb.update_traces(marker_color="#a855f7", marker_line_color="#a855f7")
+                        st.plotly_chart(
+                            chart_layout(fig_tb, "Active employees — tenure bracket"),
+                            use_container_width=True,
+                        )
+                    if col_tenure and not has_months:
+                        st.caption(
+                            f"**{col_tenure}** has no parseable month values for active employees in this selection."
+                        )
+                else:
+                    st.caption(
+                        "No tenure months or bracket values for active employees in this selection — check **TENURE** / **TENURE BRACKET** cells."
+                    )
+
         if col_edu:
             edu_a, edu_b = st.columns(2)
             vc = top_n_counts(filtered_df[col_edu], 12)
@@ -554,7 +782,11 @@ if file:
         st.markdown("</div>", unsafe_allow_html=True)
 
         with st.expander("Filtered employee table"):
-            st.dataframe(filtered_df, use_container_width=True)
+            _disp = filtered_df.drop(
+                columns=[c for c in filtered_df.columns if str(c).startswith("_HR_")],
+                errors="ignore",
+            )
+            st.dataframe(_disp, use_container_width=True)
 
     # =========================================================
     # 📉 ATTRITION INTELLIGENCE
