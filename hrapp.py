@@ -707,7 +707,11 @@ if file:
 
         if col_company:
             opts = ["All"] + sorted(df[col_company].dropna().unique().astype(str).tolist())
-            comp = st.selectbox("Company", opts)
+            if "main_dashboard_company" not in st.session_state:
+                st.session_state.main_dashboard_company = "All"
+            if st.session_state.main_dashboard_company not in opts:
+                st.session_state.main_dashboard_company = "All"
+            comp = st.selectbox("Company", opts, key="main_dashboard_company")
             if comp != "All":
                 filtered_df = filtered_df[filtered_df[col_company].astype(str) == comp]
 
@@ -785,6 +789,10 @@ if file:
                     "content": "Hello, I am your HR robot assistant. Ask me for a summary, tenure brackets, top company, branch, department, or say 'show data'.",
                 }
             ]
+        if "robot_auto_speak" not in st.session_state:
+            st.session_state.robot_auto_speak = False
+        if "robot_pending_speech" not in st.session_state:
+            st.session_state.robot_pending_speech = ""
 
         def robot_answer(query, fdf):
             q = str(query).strip().lower()
@@ -833,7 +841,55 @@ if file:
                 "Try: 'Give me summary report' or 'Top tenure bracket'."
             )
 
+        def robot_apply_command(query_text):
+            q = str(query_text).strip().lower()
+            if not q:
+                return None
+            month_map = {
+                "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+            }
+            m = re.search(r"(set|filter|change).*(year)\s+(\d{4})", q)
+            if m:
+                yr = int(m.group(3))
+                years_avail = sorted(df["_HR_FILTER_DATE"].dropna().dt.year.unique().tolist()) if "_HR_FILTER_DATE" in df.columns else []
+                if years_avail and yr in years_avail:
+                    st.session_state.main_dashboard_date_mode = "Year"
+                    st.session_state.main_dashboard_date_year_pick = yr
+                    return f"Done. I set date filter to Year {yr}."
+                return f"I cannot set year to {yr}. Available years: {years_avail[:8]}{'...' if len(years_avail) > 8 else ''}"
+
+            m = re.search(r"(set|filter|change).*(month)\s+([a-z]+|\d{1,2})", q)
+            if m:
+                raw = m.group(3)
+                mo = int(raw) if raw.isdigit() else month_map.get(raw)
+                if mo and 1 <= mo <= 12:
+                    st.session_state.main_dashboard_date_mode = "Year + Month"
+                    st.session_state.main_dashboard_date_month_pick = mo
+                    return f"Done. I set month filter to {pd.Timestamp(2000, mo, 1).strftime('%B')}."
+                return "I cannot read that month. Try month name like January."
+
+            if "active only" in q or "show active" in q:
+                st.session_state.main_dashboard_workforce = "Active"
+                return "Done. Workforce filter is now Active."
+            if "show inactive" in q or "inactive only" in q:
+                st.session_state.main_dashboard_workforce = "Inactive"
+                return "Done. Workforce filter is now Inactive."
+            if "show all workforce" in q or "workforce all" in q or "show all employees" in q:
+                st.session_state.main_dashboard_workforce = "All"
+                return "Done. Workforce filter is now All."
+
+            if ("set company" in q or "filter company" in q or "company " in q) and col_company:
+                opts = ["All"] + sorted(df[col_company].dropna().unique().astype(str).tolist())
+                for o in opts:
+                    if str(o).lower() in q:
+                        st.session_state.main_dashboard_company = o
+                        return f"Done. Company filter set to {o}."
+                return "I could not match that company name. Say exact company text from the list."
+            return None
+
         with st.expander("🤖 Talk to HR Robot", expanded=False):
+            st.checkbox("Auto-speak robot replies", key="robot_auto_speak")
             for msg in st.session_state.robot_chat[-8:]:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -841,13 +897,16 @@ if file:
             user_q = st.chat_input("Ask the robot about your filtered HR data...", key="hr_robot_chat_input")
             if user_q:
                 st.session_state.robot_chat.append({"role": "user", "content": user_q})
-                ans = robot_answer(user_q, filtered_df)
+                cmd_ans = robot_apply_command(user_q)
+                ans = cmd_ans if cmd_ans else robot_answer(user_q, filtered_df)
                 st.session_state.robot_chat.append(
                     {
                         "role": "assistant",
                         "content": ans if ans != "show_data" else "Showing first 50 rows of your current filtered data below.",
                     }
                 )
+                if st.session_state.robot_auto_speak:
+                    st.session_state.robot_pending_speech = ans if ans != "show_data" else "Showing first 50 rows of your current filtered data below."
                 st.rerun()
 
             if st.session_state.robot_chat:
@@ -872,6 +931,23 @@ if file:
                             height=0,
                             scrolling=False,
                         )
+            if st.session_state.robot_pending_speech:
+                spoken_auto = json.dumps(st.session_state.robot_pending_speech)
+                components.html(
+                    f"""
+                    <script>
+                      try {{
+                        const u = new SpeechSynthesisUtterance({spoken_auto});
+                        u.rate = 0.98; u.pitch = 1.35; u.volume = 1.0;
+                        window.speechSynthesis.cancel();
+                        window.speechSynthesis.speak(u);
+                      }} catch (e) {{}}
+                    </script>
+                    """,
+                    height=0,
+                    scrolling=False,
+                )
+                st.session_state.robot_pending_speech = ""
             if st.session_state.robot_chat and st.session_state.robot_chat[-1]["content"] == "Showing first 50 rows of your current filtered data below.":
                 st.dataframe(filtered_df.head(50), use_container_width=True)
 
