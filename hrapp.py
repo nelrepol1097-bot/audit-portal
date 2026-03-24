@@ -514,6 +514,137 @@ if file:
             else:
                 st.caption("Add a **date** column (e.g. *Date Hired*, *Joining Date*) to enable the calendar filter.")
 
+        st.markdown(
+            """
+            <style>
+            .holo-wrap {
+                position: relative;
+                height: 280px;
+                margin: 0.25rem 0 0.7rem 0;
+                border-radius: 12px;
+                border: 1px solid rgba(0, 234, 255, 0.35);
+                background:
+                    linear-gradient(180deg, rgba(0, 234, 255, 0.05), rgba(0, 0, 0, 0.15)),
+                    repeating-linear-gradient(
+                        to bottom,
+                        rgba(0, 234, 255, 0.08) 0px,
+                        rgba(0, 234, 255, 0.08) 1px,
+                        transparent 1px,
+                        transparent 7px
+                    );
+                overflow: hidden;
+                box-shadow: inset 0 0 28px rgba(0, 234, 255, 0.16), 0 0 20px rgba(0, 234, 255, 0.15);
+            }
+            .holo-glow {
+                position: absolute;
+                inset: -35% -20% auto -20%;
+                height: 70%;
+                background: radial-gradient(circle, rgba(0, 234, 255, 0.28), transparent 62%);
+                animation: holoPulse 2.8s ease-in-out infinite;
+            }
+            .holo-floor {
+                position: absolute;
+                left: 50%;
+                bottom: 16px;
+                transform: translateX(-50%);
+                width: 220px;
+                height: 32px;
+                border-radius: 50%;
+                border: 1px solid rgba(0, 234, 255, 0.5);
+                box-shadow: 0 0 20px rgba(0, 234, 255, 0.35), inset 0 0 10px rgba(0, 234, 255, 0.28);
+            }
+            .holo-human {
+                position: absolute;
+                left: 50%;
+                bottom: 38px;
+                width: 170px;
+                height: 210px;
+                transform: translateX(-50%);
+                filter: drop-shadow(0 0 10px rgba(0, 234, 255, 0.65));
+                animation: holoFloat 3.2s ease-in-out infinite;
+            }
+            .holo-human svg {
+                width: 100%;
+                height: 100%;
+            }
+            .holo-badge {
+                position: absolute;
+                top: 14px;
+                right: 16px;
+                padding: 0.28rem 0.55rem;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 234, 255, 0.5);
+                color: #7eeeff;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 0.72rem;
+                letter-spacing: 0.08em;
+                background: rgba(0, 234, 255, 0.08);
+                text-transform: uppercase;
+            }
+            .holo-hr {
+                position: absolute;
+                left: 18px;
+                top: 18px;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 1rem;
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                color: #00eaff;
+                text-shadow: 0 0 12px rgba(0, 234, 255, 0.85), 0 0 26px rgba(0, 234, 255, 0.45);
+                animation: hrBlink 1.8s ease-in-out infinite;
+            }
+            .holo-note {
+                position: absolute;
+                left: 18px;
+                bottom: 16px;
+                color: #9befff;
+                font-size: 0.76rem;
+                opacity: 0.9;
+            }
+            @keyframes holoPulse {
+                0%, 100% { opacity: 0.45; transform: scale(0.98); }
+                50%      { opacity: 0.85; transform: scale(1.04); }
+            }
+            @keyframes holoFloat {
+                0%, 100% { transform: translateX(-50%) translateY(0px); }
+                50%      { transform: translateX(-50%) translateY(-6px); }
+            }
+            @keyframes hrBlink {
+                0%, 100% { opacity: 1; }
+                50%      { opacity: 0.45; }
+            }
+            </style>
+            <div class="holo-wrap">
+                <div class="holo-glow"></div>
+                <div class="holo-hr">HR DEPARTMENT · PRIORITY</div>
+                <div class="holo-badge">Hologram: Active</div>
+                <div class="holo-human">
+                    <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" aria-label="Hologram humanoid">
+                        <g fill="none" stroke="#00eaff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="100" cy="38" r="18"/>
+                            <line x1="100" y1="56" x2="100" y2="128"/>
+                            <line x1="56" y1="86" x2="144" y2="86"/>
+                            <line x1="100" y1="128" x2="66" y2="192"/>
+                            <line x1="100" y1="128" x2="134" y2="192"/>
+                            <rect x="73" y="144" width="54" height="42" rx="6"/>
+                        </g>
+                        <g fill="none" stroke="#90f8ff" stroke-width="1.5" opacity="0.8">
+                            <path d="M40,26 C75,10 125,10 160,26"/>
+                            <path d="M32,54 C70,35 130,35 168,54"/>
+                            <path d="M24,84 C68,62 132,62 176,84"/>
+                            <path d="M20,114 C66,92 134,92 180,114"/>
+                            <path d="M26,144 C68,122 132,122 174,144"/>
+                            <path d="M34,174 C70,156 130,156 166,174"/>
+                        </g>
+                    </svg>
+                </div>
+                <div class="holo-floor"></div>
+                <div class="holo-note">Live scan focuses on HR workforce profile</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         search = st.text_input("Search Employee")
         filtered_df = df.copy()
         comp = "All"
