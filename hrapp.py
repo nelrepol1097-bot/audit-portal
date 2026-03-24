@@ -2955,6 +2955,7 @@ if file:
                             st.info(
                                 "Input rule: Fill only **Week 1-4 Actual Achievement**. "
                                 "**Weekly Target** is instruction text and **Weight %** is scoring guide. "
+                                "Enter achieved points using the weight guide (example full achievement: 40, 12, 12, 6, 7.5, 7.5, 7.5, 7.5). "
                                 "**Score %**, **TOTAL ACHIEVEMENT FTM %**, and **Weighted Achievement %** are auto-computed."
                             )
 
@@ -3016,8 +3017,12 @@ if file:
 
                                 for w in [1, 2, 3, 4]:
                                     wk_col = f"Week {w} Actual Achievement"
-                                    # Week inputs are already achievement scores/percent; clamp to 0..100.
-                                    score = np.clip(calc[wk_col], 0.0, 100.0)
+                                    # Week input is achieved points using Weight % guide.
+                                    # Full achievement for a row means week input equals that row's Weight %.
+                                    # Convert to score percent then apply weight.
+                                    denom = calc["Weight %"].replace(0, np.nan)
+                                    ratio_pct = (calc[wk_col] / denom) * 100.0
+                                    score = np.nan_to_num(np.clip(ratio_pct, 0.0, 100.0), nan=0.0)
                                     calc[f"Week {w} Score %"] = score
 
                                 calc["TOTAL ACHIEVEMENT FTM %"] = calc[
