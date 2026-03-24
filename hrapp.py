@@ -636,23 +636,41 @@ if file:
                     animation: flicker 1.9s steps(2, end) infinite;
                   }}
                   .robot-stage {{
-                    position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
-                    width:min(62%, 430px); height:222px;
-                    display:flex; align-items:flex-end; justify-content:center;
+                    position:absolute; left:50%; top:50%;
+                    transform: translate(-50%, -50%);
+                    width:min(68%, 470px); height:220px;
+                    display:flex; align-items:center; justify-content:center;
+                    pointer-events:none;
+                  }}
+                  .robot-stage::before {{
+                    content:"";
+                    position:absolute; inset: 6% 12%;
+                    border-radius: 18px;
+                    background:
+                      radial-gradient(circle at 50% 50%, rgba(0,234,255,.2), rgba(0,234,255,.04) 56%, transparent 78%),
+                      linear-gradient(180deg, rgba(0,234,255,.06), rgba(0,0,0,.08));
+                    box-shadow: inset 0 0 24px rgba(0,234,255,.14);
+                    filter: blur(.2px);
+                    z-index: 0;
+                  }}
+                  .robot-inner {{
+                    width:100%; height:100%;
+                    display:flex; align-items:center; justify-content:center;
                     animation: camPush 9s ease-in-out infinite, stageSway 6.2s ease-in-out infinite;
+                    z-index: 1;
                   }}
                   .robot-img {{
-                    width: 100%;
-                    height: 100%;
+                    width: 96%;
+                    height: 96%;
                     object-fit: contain;
-                    object-position: center bottom;
-                    filter: grayscale(0.05) saturate(1.08) brightness(1.08) contrast(1.08)
-                            drop-shadow(0 0 7px rgba(0,234,255,.9))
-                            drop-shadow(0 0 20px rgba(0,234,255,.45));
-                    opacity: 0.92;
+                    object-position: center center;
+                    filter: grayscale(0.06) saturate(1.06) brightness(1.06) contrast(1.04)
+                            drop-shadow(0 0 8px rgba(0,234,255,.85))
+                            drop-shadow(0 0 22px rgba(0,234,255,.42));
+                    opacity: 0.88;
                     mix-blend-mode: screen;
-                    -webkit-mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
-                    mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
+                    -webkit-mask-image: radial-gradient(ellipse at 50% 54%, black 45%, rgba(0,0,0,.9) 56%, rgba(0,0,0,.55) 68%, transparent 84%);
+                    mask-image: radial-gradient(ellipse at 50% 54%, black 45%, rgba(0,0,0,.9) 56%, rgba(0,0,0,.55) 68%, transparent 84%);
                     animation: bob 3.1s ease-in-out infinite, holoJitter 0.18s linear infinite, breathe 4.6s ease-in-out infinite;
                   }}
                   .robot-glow {{
@@ -720,9 +738,9 @@ if file:
                     50% {{ transform: scale(1.02); }}
                   }}
                   @keyframes stageSway {{
-                    0%,100% {{ margin-left: 0px; }}
-                    25% {{ margin-left: -6px; }}
-                    75% {{ margin-left: 6px; }}
+                    0%,100% {{ transform: translateX(0px); }}
+                    25% {{ transform: translateX(-4px); }}
+                    75% {{ transform: translateX(4px); }}
                   }}
                   @keyframes breathe {{
                     0%,100% {{ transform: scale(1) translateY(0px); }}
@@ -744,7 +762,7 @@ if file:
                   <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
                   <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
                   <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
-                  <div class="robot-stage"><img class="robot-img" src="{robot_img_uri}" alt="HR Robot" /></div>
+                  <div class="robot-stage"><div class="robot-inner"><img class="robot-img" src="{robot_img_uri}" alt="HR Robot" /></div></div>
                   <div class="robot-ring"></div>
                   <div class="robot-wave"></div>
                   <div class="robot-glow"></div>
