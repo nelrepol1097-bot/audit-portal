@@ -7,6 +7,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
 import time
 import re
+from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(layout="wide")
 
@@ -461,6 +463,7 @@ if file:
 
         search = st.text_input("Search Employee")
         filtered_df = df.copy()
+        comp = "All"
 
         if col_name and search:
             filtered_df = filtered_df[
@@ -757,6 +760,146 @@ if file:
                 else:
                     st.caption(
                         "No tenure months or bracket values for active employees in this selection — check **TENURE** / **TENURE BRACKET** cells."
+                    )
+
+        with st.expander("📥 Download tenure report (Excel) — active employees & bracket / months", expanded=False):
+            st.caption(
+                "File matches your **current filters** (search, company, calendar date range, workforce). "
+                "Counts and rows use **active** employees when **CURRENT STATUS** exists."
+            )
+            act_export = filtered_df.loc[active_mask].copy() if col_status else filtered_df.copy()
+            if col_status and act_export.empty:
+                st.warning("No active employees in the current selection — adjust filters or switch workforce to **All** / **Active**.")
+            else:
+                ds_part = ""
+                if col_date_filter and date_sel is not None:
+                    if isinstance(date_sel, tuple) and len(date_sel) == 2:
+                        ds_part = f"{date_sel[0]} → {date_sel[1]}"
+                    else:
+                        ds_part = str(date_sel)
+                info_data = {
+                    "Item": [
+                        "Exported at",
+                        "Workforce filter",
+                        "Company",
+                        "Search text",
+                        "Date column used",
+                        "Date range applied",
+                        "Rows exported (active / filtered)",
+                        "Status column",
+                    ],
+                    "Value": [
+                        datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        str(workforce_filter),
+                        str(comp),
+                        search if search else "(none)",
+                        str(col_date_filter) if col_date_filter else "(none)",
+                        ds_part if ds_part else "(full range or no date filter)",
+                        f"{len(act_export):,}",
+                        "Yes — active only" if col_status else "No — all filtered rows",
+                    ],
+                }
+                df_info_export = pd.DataFrame(info_data)
+
+                drop_internal = [
+                    c
+                    for c in act_export.columns
+                    if str(c).startswith("_HR_") or str(c) == "IS_ATTRITION"
+                ]
+                detail_export = act_export.drop(columns=drop_internal, errors="ignore").copy()
+                if "TENURE_NUM" in detail_export.columns:
+                    detail_export = detail_export.rename(columns={"TENURE_NUM": "Tenure (months)"})
+
+                bio = BytesIO()
+                try:
+                    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+                        df_info_export.to_excel(writer, sheet_name="Export_info", index=False)
+                        detail_export.to_excel(writer, sheet_name="Employee_detail", index=False)
+
+                        if col_tenure_bracket:
+                            br_raw = act_export[col_tenure_bracket].astype(str).str.strip()
+                            br_raw = br_raw.replace({"nan": "", "None": ""})
+                            valid_b = br_raw[br_raw.str.len() > 0]
+                            if not valid_b.empty:
+                                summ_b = valid_b.value_counts().reset_index()
+                                summ_b.columns = ["Tenure bracket", "Active headcount"]
+                                summ_b = summ_b.sort_values(
+                                    "Tenure bracket",
+                                    key=lambda s: s.map(
+                                        lambda x: (
+                                            int(m.group(1))
+                                            if (m := re.search(r"(\d+)", str(x).upper()))
+                                            else 99999
+                                        )
+                                    ),
+                                )
+                                summ_b.to_excel(writer, sheet_name="Bracket_counts", index=False)
+                            else:
+                                pd.DataFrame(
+                                    {"Note": ["No tenure bracket values for active rows in this filter."]}
+                                ).to_excel(writer, sheet_name="Bracket_counts", index=False)
+
+                        if (
+                            col_tenure_bracket
+                            and "TENURE_NUM" in act_export.columns
+                            and act_export["TENURE_NUM"].notna().any()
+                        ):
+                            gx = act_export.dropna(subset=["TENURE_NUM"]).copy()
+                            gx["_BR"] = gx[col_tenure_bracket].astype(str).str.strip()
+                            gx["_BR"] = gx["_BR"].replace({"nan": "", "None": ""})
+                            gx = gx[gx["_BR"].str.len() > 0]
+                            if not gx.empty:
+                                cross = (
+                                    gx.groupby(["TENURE_NUM", "_BR"], dropna=False)
+                                    .size()
+                                    .reset_index(name="Active headcount")
+                                )
+                                cross = cross.rename(
+                                    columns={
+                                        "TENURE_NUM": "Tenure (months)",
+                                        "_BR": "Tenure bracket",
+                                    }
+                                )
+                                cross = cross.sort_values(
+                                    ["Tenure (months)", "Tenure bracket"]
+                                )
+                                cross.to_excel(writer, sheet_name="Months_by_bracket", index=False)
+                            else:
+                                pd.DataFrame(
+                                    {
+                                        "Note": [
+                                            "No rows with both tenure months and bracket for this filter."
+                                        ]
+                                    }
+                                ).to_excel(writer, sheet_name="Months_by_bracket", index=False)
+                        elif "TENURE_NUM" in act_export.columns and act_export["TENURE_NUM"].notna().any():
+                            tm_only = (
+                                act_export.dropna(subset=["TENURE_NUM"])[["TENURE_NUM"]]
+                                .rename(columns={"TENURE_NUM": "Tenure (months)"})
+                                .groupby("Tenure (months)", as_index=False)
+                                .size()
+                                .rename(columns={"size": "Active headcount"})
+                            )
+                            tm_only.to_excel(writer, sheet_name="Months_by_bracket", index=False)
+
+                    bio.seek(0)
+                    fn = f"HR_Active_Tenure_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+                    st.download_button(
+                        label="Download Excel report",
+                        data=bio,
+                        file_name=fn,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_tenure_excel",
+                    )
+                except Exception as ex:
+                    st.error(f"Could not build Excel file: {ex}")
+                    csv_buf = detail_export.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(
+                        label="Download CSV (employee detail only)",
+                        data=csv_buf,
+                        file_name=f"HR_Active_Tenure_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv",
+                        key="download_tenure_csv_fallback",
                     )
 
         if col_edu:
