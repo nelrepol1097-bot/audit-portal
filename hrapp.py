@@ -7,8 +7,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
 import time
 import re
+import base64
 from io import BytesIO
 from datetime import datetime
+from pathlib import Path
+import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
 
@@ -514,135 +517,100 @@ if file:
             else:
                 st.caption("Add a **date** column (e.g. *Date Hired*, *Joining Date*) to enable the calendar filter.")
 
-        st.markdown(
-            """
+        robot_img_uri = ""
+        robot_candidates = [
+            r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-a5042e8b-4583-4c1a-9ec1-b41d14970dc0.png",
+            r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-29ba6671-dd23-49c9-b4c2-e43d27d32d10.png",
+        ]
+        for rp in robot_candidates:
+            p = Path(rp)
+            if p.exists():
+                try:
+                    robot_img_uri = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+                    break
+                except Exception:
+                    robot_img_uri = ""
+
+        if not robot_img_uri:
+            robot_img_uri = (
+                "data:image/svg+xml;utf8,"
+                "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='320'>"
+                "<rect width='100%' height='100%' fill='%23091f2d'/>"
+                "<text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' "
+                "font-family='Arial' font-size='26' fill='%2300eaff'>ROBOT IMAGE NOT FOUND</text></svg>"
+            )
+
+        components.html(
+            f"""
             <style>
-            .holo-wrap {
-                position: relative;
-                height: 280px;
-                margin: 0.25rem 0 0.7rem 0;
-                border-radius: 12px;
-                border: 1px solid rgba(0, 234, 255, 0.35);
-                background:
-                    linear-gradient(180deg, rgba(0, 234, 255, 0.05), rgba(0, 0, 0, 0.15)),
-                    repeating-linear-gradient(
-                        to bottom,
-                        rgba(0, 234, 255, 0.08) 0px,
-                        rgba(0, 234, 255, 0.08) 1px,
-                        transparent 1px,
-                        transparent 7px
-                    );
-                overflow: hidden;
-                box-shadow: inset 0 0 28px rgba(0, 234, 255, 0.16), 0 0 20px rgba(0, 234, 255, 0.15);
-            }
-            .holo-glow {
-                position: absolute;
-                inset: -35% -20% auto -20%;
-                height: 70%;
-                background: radial-gradient(circle, rgba(0, 234, 255, 0.28), transparent 62%);
-                animation: holoPulse 2.8s ease-in-out infinite;
-            }
-            .holo-floor {
-                position: absolute;
-                left: 50%;
-                bottom: 16px;
-                transform: translateX(-50%);
-                width: 220px;
-                height: 32px;
-                border-radius: 50%;
-                border: 1px solid rgba(0, 234, 255, 0.5);
-                box-shadow: 0 0 20px rgba(0, 234, 255, 0.35), inset 0 0 10px rgba(0, 234, 255, 0.28);
-            }
-            .holo-human {
-                position: absolute;
-                left: 50%;
-                bottom: 38px;
-                width: 170px;
-                height: 210px;
-                transform: translateX(-50%);
-                filter: drop-shadow(0 0 10px rgba(0, 234, 255, 0.65));
-                animation: holoFloat 3.2s ease-in-out infinite;
-            }
-            .holo-human svg {
-                width: 100%;
-                height: 100%;
-            }
-            .holo-badge {
-                position: absolute;
-                top: 14px;
-                right: 16px;
-                padding: 0.28rem 0.55rem;
-                border-radius: 8px;
-                border: 1px solid rgba(0, 234, 255, 0.5);
-                color: #7eeeff;
-                font-family: 'Orbitron', sans-serif;
-                font-size: 0.72rem;
-                letter-spacing: 0.08em;
-                background: rgba(0, 234, 255, 0.08);
-                text-transform: uppercase;
-            }
-            .holo-hr {
-                position: absolute;
-                left: 18px;
-                top: 18px;
-                font-family: 'Orbitron', sans-serif;
-                font-size: 1rem;
-                font-weight: 700;
-                letter-spacing: 0.12em;
-                color: #00eaff;
-                text-shadow: 0 0 12px rgba(0, 234, 255, 0.85), 0 0 26px rgba(0, 234, 255, 0.45);
-                animation: hrBlink 1.8s ease-in-out infinite;
-            }
-            .holo-note {
-                position: absolute;
-                left: 18px;
-                bottom: 16px;
-                color: #9befff;
-                font-size: 0.76rem;
-                opacity: 0.9;
-            }
-            @keyframes holoPulse {
-                0%, 100% { opacity: 0.45; transform: scale(0.98); }
-                50%      { opacity: 0.85; transform: scale(1.04); }
-            }
-            @keyframes holoFloat {
-                0%, 100% { transform: translateX(-50%) translateY(0px); }
-                50%      { transform: translateX(-50%) translateY(-6px); }
-            }
-            @keyframes hrBlink {
-                0%, 100% { opacity: 1; }
-                50%      { opacity: 0.45; }
-            }
+              .robot-panel {{
+                position: relative; height: 280px; margin: 0.25rem 0 0.7rem 0;
+                border-radius: 12px; overflow: hidden;
+                border: 1px solid rgba(0,234,255,.36);
+                background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
+                box-shadow: inset 0 0 28px rgba(0,234,255,.14), 0 0 16px rgba(0,234,255,.16);
+              }}
+              .robot-scan {{
+                position:absolute; inset:0;
+                background: repeating-linear-gradient(to bottom, rgba(0,234,255,.08) 0 1px, transparent 1px 7px);
+                pointer-events:none; mix-blend-mode:screen;
+              }}
+              .robot-img {{
+                position:absolute; left:50%; bottom:8px; transform:translateX(-50%);
+                width: min(95%, 520px); height:auto; max-height: 255px; object-fit: contain;
+                filter: drop-shadow(0 0 16px rgba(0,234,255,.45));
+                animation: bob 3.4s ease-in-out infinite;
+              }}
+              .robot-glow {{
+                position:absolute; left:50%; bottom:6px; transform:translateX(-50%);
+                width: 230px; height: 24px; border-radius:50%;
+                border:1px solid rgba(0,234,255,.45); box-shadow:0 0 16px rgba(0,234,255,.35), inset 0 0 8px rgba(0,234,255,.28);
+              }}
+              .robot-title {{
+                position:absolute; left:14px; top:12px;
+                font:700 13px Orbitron,Arial,sans-serif; letter-spacing:.08em;
+                color:#00eaff; text-shadow:0 0 12px rgba(0,234,255,.8);
+              }}
+              .robot-btn {{
+                position:absolute; right:12px; top:10px;
+                background:rgba(0,234,255,.12); color:#bff8ff; border:1px solid rgba(0,234,255,.52);
+                border-radius:8px; padding:5px 10px; cursor:pointer; font:600 12px Rajdhani,Arial,sans-serif;
+              }}
+              .robot-btn:hover {{ background: rgba(0,234,255,.2); color:#fff; }}
+              .robot-note {{
+                position:absolute; left:14px; bottom:10px; color:#9fefff; font:600 12px Rajdhani,Arial,sans-serif;
+              }}
+              @keyframes bob {{
+                0%,100% {{ transform: translateX(-50%) translateY(0px); }}
+                50% {{ transform: translateX(-50%) translateY(-6px); }}
+              }}
             </style>
-            <div class="holo-wrap">
-                <div class="holo-glow"></div>
-                <div class="holo-hr">HR DEPARTMENT · PRIORITY</div>
-                <div class="holo-badge">Hologram: Active</div>
-                <div class="holo-human">
-                    <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" aria-label="Hologram humanoid">
-                        <g fill="none" stroke="#00eaff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="100" cy="38" r="18"/>
-                            <line x1="100" y1="56" x2="100" y2="128"/>
-                            <line x1="56" y1="86" x2="144" y2="86"/>
-                            <line x1="100" y1="128" x2="66" y2="192"/>
-                            <line x1="100" y1="128" x2="134" y2="192"/>
-                            <rect x="73" y="144" width="54" height="42" rx="6"/>
-                        </g>
-                        <g fill="none" stroke="#90f8ff" stroke-width="1.5" opacity="0.8">
-                            <path d="M40,26 C75,10 125,10 160,26"/>
-                            <path d="M32,54 C70,35 130,35 168,54"/>
-                            <path d="M24,84 C68,62 132,62 176,84"/>
-                            <path d="M20,114 C66,92 134,92 180,114"/>
-                            <path d="M26,144 C68,122 132,122 174,144"/>
-                            <path d="M34,174 C70,156 130,156 166,174"/>
-                        </g>
-                    </svg>
-                </div>
-                <div class="holo-floor"></div>
-                <div class="holo-note">Live scan focuses on HR workforce profile</div>
+            <div class="robot-panel">
+              <div class="robot-scan"></div>
+              <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
+              <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
+              <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
+              <div class="robot-glow"></div>
+              <div class="robot-note">Department focus: HR</div>
             </div>
+            <script>
+              function speakGM() {{
+                try {{
+                  const u = new SpeechSynthesisUtterance("Good morning. Welcome to the HR Executive Dashboard.");
+                  u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+                  const vs = window.speechSynthesis.getVoices();
+                  if (vs && vs.length) {{
+                    const en = vs.find(v => /en/i.test(v.lang));
+                    if (en) u.voice = en;
+                  }}
+                  window.speechSynthesis.cancel();
+                  window.speechSynthesis.speak(u);
+                }} catch (e) {{}}
+              }}
+            </script>
             """,
-            unsafe_allow_html=True,
+            height=305,
+            scrolling=False,
         )
 
         search = st.text_input("Search Employee")
