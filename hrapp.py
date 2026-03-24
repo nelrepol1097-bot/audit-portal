@@ -666,6 +666,18 @@ if file:
                 m = re.search(r"(\d+)", s)
                 return (int(m.group(1)), s) if m else (99999, s)
 
+            # Fixed month bands for heatmaps (strictly increasing bin edges)
+            TENURE_BIN_EDGES = [0, 12, 24, 36, 48, 60, 120, 100_000]
+            TENURE_BIN_LABELS = [
+                "0–12 mo",
+                "12–24 mo",
+                "24–36 mo",
+                "36–48 mo",
+                "48–60 mo",
+                "60–120 mo",
+                "120+ mo",
+            ]
+
             if col_status and act_for_tenure.empty:
                 st.info("No active employees in the current selection — switch workforce to **All** or **Active**, or adjust filters.")
             else:
@@ -680,56 +692,144 @@ if file:
                     has_bracket = br.notna().any() and br.astype(str).str.strip().ne("").any()
 
                 if has_months and has_bracket:
-                    tcol_a, tcol_b = st.columns(2)
-                    sub_m = act_for_tenure.dropna(subset=["TENURE_NUM"])
-                    nb = int(min(36, max(10, sub_m["TENURE_NUM"].max() - sub_m["TENURE_NUM"].min() + 1)))
-                    fig_tm = px.histogram(
-                        sub_m,
-                        x="TENURE_NUM",
-                        nbins=min(nb, 40),
-                        labels={"TENURE_NUM": "Tenure (months)", "count": "Active headcount"},
-                    )
-                    fig_tm.update_traces(marker_color="#00eaff", marker_line_color="#00eaff")
-                    tcol_a.plotly_chart(
-                        chart_layout(fig_tm, "Active employees — tenure (months)"),
-                        use_container_width=True,
-                    )
-                    vc_br = (
-                        act_for_tenure[col_tenure_bracket]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                    )
-                    vc_br = vc_br[vc_br.str.len() > 0]
-                    if not vc_br.empty:
-                        ord_idx = sorted(vc_br.unique().tolist(), key=bracket_sort_key)
-                        ctab_br = vc_br.value_counts().reindex(ord_idx).dropna()
-                        fig_tb = px.bar(
-                            x=ctab_br.index.astype(str),
-                            y=ctab_br.values,
-                            labels={"x": col_tenure_bracket, "y": "Active headcount"},
+                    hm_df = act_for_tenure.dropna(subset=["TENURE_NUM"]).copy()
+                    hm_df["_BR"] = hm_df[col_tenure_bracket].astype(str).str.strip()
+                    hm_df = hm_df[hm_df["_BR"].str.len() > 0]
+                    if hm_df.empty:
+                        st.caption("No rows with both tenure months and bracket for heatmaps.")
+                    else:
+                        hm_df["_MB"] = pd.cut(
+                            hm_df["TENURE_NUM"],
+                            bins=TENURE_BIN_EDGES,
+                            labels=TENURE_BIN_LABELS,
+                            include_lowest=True,
                         )
-                        fig_tb.update_traces(marker_color="#a855f7", marker_line_color="#a855f7")
-                        tcol_b.plotly_chart(
-                            chart_layout(fig_tb, "Active employees — tenure bracket"),
+                        hm_df = hm_df.dropna(subset=["_MB"])
+                        if hm_df.empty:
+                            st.caption("Could not bin tenure months for heatmap.")
+                        else:
+                            pv_mb = hm_df.pivot_table(
+                                index="_BR",
+                                columns="_MB",
+                                aggfunc="size",
+                                fill_value=0,
+                            )
+                            row_ord = sorted(pv_mb.index.tolist(), key=bracket_sort_key)
+                            pv_mb = pv_mb.reindex(row_ord)
+                            col_ord = [c for c in TENURE_BIN_LABELS if c in pv_mb.columns]
+                            pv_mb = pv_mb.reindex(columns=col_ord)
+                            fig_hm1 = px.imshow(
+                                pv_mb,
+                                labels=dict(
+                                    x="Tenure (months, binned)",
+                                    y="Tenure bracket",
+                                    color="Active headcount",
+                                ),
+                                aspect="auto",
+                                color_continuous_scale="Teal",
+                                zmin=0,
+                            )
+                            fig_hm1.update_xaxes(side="bottom")
+                            h1, h2 = st.columns(2)
+                            h1.plotly_chart(
+                                chart_layout(
+                                    fig_hm1,
+                                    "Heatmap — tenure bracket × months (binned)",
+                                ),
+                                use_container_width=True,
+                            )
+
+                            pv_sp = None
+                            split_title = ""
+                            split_col = None
+                            if col_company:
+                                split_col = col_company
+                                split_title = "Company"
+                            elif col_branch:
+                                split_col = col_branch
+                                split_title = "Branch"
+                            elif col_dept:
+                                split_col = col_dept
+                                split_title = "Department"
+                            elif col_gender:
+                                split_col = col_gender
+                                split_title = "Gender"
+
+                            if split_col:
+                                top_dim = (
+                                    hm_df[split_col]
+                                    .astype(str)
+                                    .str.strip()
+                                    .replace({"nan": "", "None": ""})
+                                )
+                                top_dim = top_dim[top_dim.str.len() > 0]
+                                if not top_dim.empty:
+                                    keep = top_dim.value_counts().head(14).index.tolist()
+                                    hm2 = hm_df[hm_df[split_col].astype(str).isin(keep)].copy()
+                                    pv_sp = hm2.pivot_table(
+                                        index="_BR",
+                                        columns=split_col,
+                                        aggfunc="size",
+                                        fill_value=0,
+                                    )
+                                    pv_sp = pv_sp.reindex(sorted(pv_sp.index.tolist(), key=bracket_sort_key))
+                                    fig_hm2 = px.imshow(
+                                        pv_sp,
+                                        labels=dict(
+                                            x=split_title,
+                                            y="Tenure bracket",
+                                            color="Active headcount",
+                                        ),
+                                        aspect="auto",
+                                        color_continuous_scale="Purple",
+                                        zmin=0,
+                                    )
+                                    fig_hm2.update_xaxes(side="bottom")
+                                    h2.plotly_chart(
+                                        chart_layout(
+                                            fig_hm2,
+                                            f"Heatmap — tenure bracket × {split_title} (top {len(keep)})",
+                                        ),
+                                        use_container_width=True,
+                                    )
+                                else:
+                                    h2.caption(f"No **{split_title}** values to cross-tab.")
+                            else:
+                                h2.caption("Add **Company**, **Branch**, **Department**, or **Gender** for a second heatmap.")
+
+                            with st.expander("Tenure heatmap data (matrix tables)", expanded=False):
+                                st.caption("Bracket × month bins (counts)")
+                                st.dataframe(pv_mb, use_container_width=True)
+                                if pv_sp is not None:
+                                    st.caption(f"Bracket × {split_title} (counts)")
+                                    st.dataframe(pv_sp, use_container_width=True)
+                elif has_months:
+                    hm_df = act_for_tenure.dropna(subset=["TENURE_NUM"]).copy()
+                    hm_df["_MB"] = pd.cut(
+                        hm_df["TENURE_NUM"],
+                        bins=TENURE_BIN_EDGES,
+                        labels=TENURE_BIN_LABELS,
+                        include_lowest=True,
+                    )
+                    hm_df = hm_df.dropna(subset=["_MB"])
+                    if hm_df.empty:
+                        st.caption("Could not bin tenure months.")
+                    else:
+                        vc_m = hm_df["_MB"].value_counts()
+                        col_order = [c for c in TENURE_BIN_LABELS if c in vc_m.index]
+                        vc_m = vc_m.reindex(col_order, fill_value=0)
+                        pv1 = pd.DataFrame([vc_m.values], columns=vc_m.index.astype(str), index=["Active headcount"])
+                        fig_hm = px.imshow(
+                            pv1,
+                            labels=dict(x="Tenure (months, binned)", y="", color="Active headcount"),
+                            aspect="auto",
+                            color_continuous_scale="Teal",
+                            zmin=0,
+                        )
+                        st.plotly_chart(
+                            chart_layout(fig_hm, "Heatmap — active employees by tenure month band (no bracket column)"),
                             use_container_width=True,
                         )
-                    else:
-                        tcol_b.caption("Tenure bracket column has no values for this selection.")
-                elif has_months:
-                    sub_m = act_for_tenure.dropna(subset=["TENURE_NUM"])
-                    nb = int(min(36, max(10, sub_m["TENURE_NUM"].max() - sub_m["TENURE_NUM"].min() + 1)))
-                    fig_tm = px.histogram(
-                        sub_m,
-                        x="TENURE_NUM",
-                        nbins=min(nb, 40),
-                        labels={"TENURE_NUM": "Tenure (months)", "count": "Active headcount"},
-                    )
-                    fig_tm.update_traces(marker_color="#00eaff", marker_line_color="#00eaff")
-                    st.plotly_chart(
-                        chart_layout(fig_tm, "Active employees — tenure (months)"),
-                        use_container_width=True,
-                    )
                     if col_tenure_bracket and not has_bracket:
                         st.caption(f"**{col_tenure_bracket}** has no values for active employees in this selection.")
                 elif has_bracket:
@@ -743,14 +843,16 @@ if file:
                     if not vc_br.empty:
                         ord_idx = sorted(vc_br.unique().tolist(), key=bracket_sort_key)
                         ctab_br = vc_br.value_counts().reindex(ord_idx).dropna()
-                        fig_tb = px.bar(
-                            x=ctab_br.index.astype(str),
-                            y=ctab_br.values,
-                            labels={"x": col_tenure_bracket, "y": "Active headcount"},
+                        pv_b = pd.DataFrame([ctab_br.values], columns=ctab_br.index.astype(str), index=["Active headcount"])
+                        fig_hb = px.imshow(
+                            pv_b,
+                            labels=dict(x="Tenure bracket", y="", color="Active headcount"),
+                            aspect="auto",
+                            color_continuous_scale="Purple",
+                            zmin=0,
                         )
-                        fig_tb.update_traces(marker_color="#a855f7", marker_line_color="#a855f7")
                         st.plotly_chart(
-                            chart_layout(fig_tb, "Active employees — tenure bracket"),
+                            chart_layout(fig_hb, "Heatmap — active employees by tenure bracket (no months column)"),
                             use_container_width=True,
                         )
                     if col_tenure and not has_months:
