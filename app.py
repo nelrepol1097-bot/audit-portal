@@ -1338,18 +1338,17 @@ def branch_tin_address():
             if pd.notna(r.get("ID"))
         }
 
-        rows = []
-        addr_col = "ADDRESS (NEW ADDRESS)"
-        if addr_col not in edited.columns and "UPDATED_ADDRESS" in edited.columns:
-            addr_col = "UPDATED_ADDRESS"
+        # Normalize payload column name to avoid data_editor edge cases.
+        payload = edited.copy()
+        if "ADDRESS (NEW ADDRESS)" in payload.columns:
+            payload = payload.rename(columns={"ADDRESS (NEW ADDRESS)": "UPDATED_ADDRESS"})
 
-        for _, er in edited.iterrows():
+        rows = []
+        for _, er in payload.iterrows():
             eid = pd.to_numeric(er.get("ID"), errors="coerce")
-            new_addr = er.get(addr_col)
-            old_addr = er.get("OLD_ADDRESS")
-            extra = ""
-            if _clean_scalar(old_addr) is not None:
-                extra = f" | Previous address (from view): {old_addr}"
+            new_addr = _clean_scalar(er.get("UPDATED_ADDRESS"))
+            old_addr = _clean_scalar(er.get("OLD_ADDRESS"))
+            extra = f" | Previous address (from view): {old_addr}" if old_addr else ""
 
             if pd.notna(eid) and int(eid) in base_map:
                 b = base_map[int(eid)].copy()
@@ -1360,7 +1359,7 @@ def branch_tin_address():
                 b["TIN"] = _clean_scalar(er.get("TIN")) or b.get("TIN")
                 b["BRANCH_CODE"] = _clean_scalar(er.get("BRANCH_CODE")) or b.get("BRANCH_CODE")
                 b["RDO"] = _clean_scalar(er.get("RDO")) or b.get("RDO")
-                b["UPDATED_ADDRESS"] = _clean_scalar(new_addr)
+                b["UPDATED_ADDRESS"] = new_addr or b.get("UPDATED_ADDRESS")
                 b["REMARKS"] = f"{REMARK_CHANGED_VIEW}{extra}"
                 rows.append(b)
             else:
@@ -1368,11 +1367,11 @@ def branch_tin_address():
                     {
                         "ID": None,
                         "COMPANY": company,
-                        "TIN": er.get("TIN"),
-                        "BRANCH_CODE": er.get("BRANCH_CODE"),
-                        "RDO": er.get("RDO"),
-                        "AREA": er.get("AREA"),
-                        "BRANCH_NAME": er.get("BRANCH_NAME"),
+                        "TIN": _clean_scalar(er.get("TIN")),
+                        "BRANCH_CODE": _clean_scalar(er.get("BRANCH_CODE")),
+                        "RDO": _clean_scalar(er.get("RDO")),
+                        "AREA": _clean_scalar(er.get("AREA")),
+                        "BRANCH_NAME": _clean_scalar(er.get("BRANCH_NAME")),
                         "UPDATED_ADDRESS": new_addr,
                         "STATUS": "CHANGED",
                         "DATE_OPEN": er.get("DATE_OPEN"),
@@ -1463,7 +1462,7 @@ def branch_tin_address():
     if st.session_state.view_mode == "NEW":
         st.subheader("🆕 NEW BRANCH ADDRESS")
 
-        df_new = df[df["STATUS"] == "NEW"].copy()
+        df_new = df[df["STATUS"].astype(str).str.strip().str.upper() == "NEW"].copy()
         if df_new.empty:
             df_new = pd.DataFrame(
                 columns=[
@@ -1513,7 +1512,7 @@ def branch_tin_address():
     if st.session_state.view_mode == "CHANGED":
         st.subheader("🔁 CHANGED ADDRESS")
 
-        df_changed = df[df["STATUS"] == "CHANGED"].copy()
+        df_changed = df[df["STATUS"].astype(str).str.strip().str.upper() == "CHANGED"].copy()
         if "OLD_ADDRESS" not in df_changed.columns:
             df_changed["OLD_ADDRESS"] = None
         df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
