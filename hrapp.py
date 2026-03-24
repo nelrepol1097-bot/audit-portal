@@ -747,7 +747,7 @@ if file:
                   <div class="robot-scan"></div>
                   <div class="robot-particles"></div>
                   <div class="robot-flicker"></div>
-                  <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
+                  <div class="robot-title">HR ASSISTANT</div>
                   <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
                   <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
                   <div class="robot-stage"><div class="robot-inner"><img class="robot-img" src="{robot_img_uri}" alt="HR Robot" /></div></div>
@@ -919,6 +919,31 @@ if file:
             q = str(query).strip().lower()
             if not q:
                 return "Please type a question so I can help."
+            if ("employee details of" in q or "show employee details of" in q or "details of" in q) and col_name:
+                m = re.search(r"(?:employee details of|show employee details of|details of)\s+(.+)$", q)
+                target_name = m.group(1).strip() if m else ""
+                if target_name:
+                    name_series = fdf[col_name].astype(str).str.strip()
+                    hit = fdf[name_series.str.lower().str.contains(re.escape(target_name), na=False)]
+                    if hit.empty:
+                        return (
+                            f"I could not find employee '{target_name}'. "
+                            "Try exact spelling or ask 'show employee details' to see the table."
+                        )
+                    preview = hit.head(5)
+                    show_cols = [c for c in [col_name, col_company, col_dept, col_branch, col_status] if c and c in preview.columns]
+                    lines = []
+                    for _, rr in preview[show_cols].iterrows():
+                        parts = [str(rr[c]) for c in show_cols if pd.notna(rr[c]) and str(rr[c]).strip() != ""]
+                        if parts:
+                            lines.append(" | ".join(parts))
+                    if lines:
+                        return (
+                            f"I found {len(hit)} matching record(s):\n- "
+                            + "\n- ".join(lines)
+                            + "\nAsk 'show employee details' if you want the table view."
+                        )
+                    return f"I found {len(hit)} matching record(s) for '{target_name}'. Ask 'show employee details' for table view."
             if "summary" in q or "report" in q or "dashboard" in q:
                 top_company_txt = ""
                 if col_company and not fdf.empty:
