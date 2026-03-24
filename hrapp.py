@@ -2953,34 +2953,35 @@ if file:
                                 "Employee is selected from HR DATABASE (no manual typing), so input mistakes on name are prevented."
                             )
                             st.info(
-                                "Input rule: Fill only **Weekly Target** and **Week 1-4 Actual Achievement**. "
+                                "Input rule: Fill only **Week 1-4 Actual Achievement**. "
+                                "**Weekly Target** is instruction text and **Weight %** is scoring guide. "
                                 "**Score %**, **TOTAL ACHIEVEMENT FTM %**, and **Weighted Achievement %** are auto-computed."
                             )
 
-                            scorecard_rows = [
-                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Weekly Target": 10.0},
-                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Weekly Target": 10.0},
-                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Weekly Target": 5.0},
-                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Weekly Target": 4.0},
-                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Weekly Target": 7.0},
-                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Weekly Target": 0.0},
-                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Weekly Target": 0.0},
-                            ]
-                            card_df = pd.DataFrame(scorecard_rows)
-                            for w in [1, 2, 3, 4]:
-                                card_df[f"Week {w} Actual Achievement"] = 0.0
-                            card_df["Notes"] = ""
-
                             if "scorecard_input_cache" not in st.session_state:
                                 st.session_state.scorecard_input_cache = {}
+                            if "scorecard_data_cache" not in st.session_state:
+                                st.session_state.scorecard_data_cache = {}
                             cache_key = f"sc::{picked_name}"
-                            if cache_key in st.session_state.scorecard_input_cache:
-                                try:
-                                    prev_df = st.session_state.scorecard_input_cache[cache_key]
-                                    for c in [x for x in prev_df.columns if x in card_df.columns]:
-                                        card_df[c] = prev_df[c]
-                                except Exception:
-                                    pass
+
+                            if cache_key not in st.session_state.scorecard_data_cache:
+                                scorecard_rows = [
+                                    {"Category": "Production", "Metric": "UDI Target", "Weekly Target": "100% of weekly target", "Weight %": 40.0},
+                                    {"Category": "Activity", "Metric": "Client Visits", "Weekly Target": "15-20 Clients daily", "Weight %": 12.0},
+                                    {"Category": "Activity", "Metric": "Contact Rate", "Weekly Target": "At least 50% of visited clients daily", "Weight %": 12.0},
+                                    {"Category": "Activity", "Metric": "Flyering", "Weekly Target": "Minimum 5 contacts daily", "Weight %": 6.0},
+                                    {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weekly Target": "At least 4 per month (Renewal)", "Weight %": 7.5},
+                                    {"Category": "Pipeline", "Metric": "Active Pipeline", "Weekly Target": "7-10 Accounts with 1-2 accounts converted per week", "Weight %": 7.5},
+                                    {"Category": "Compliance", "Metric": "Attendance", "Weekly Target": "Zero absence", "Weight %": 7.5},
+                                    {"Category": "Compliance", "Metric": "Zero Complaint", "Weekly Target": "No validated client complaint", "Weight %": 7.5},
+                                ]
+                                seed_df = pd.DataFrame(scorecard_rows)
+                                for w in [1, 2, 3, 4]:
+                                    seed_df[f"Week {w} Actual Achievement"] = 0.0
+                                seed_df["Notes"] = ""
+                                st.session_state.scorecard_data_cache[cache_key] = seed_df
+
+                            card_df = st.session_state.scorecard_data_cache[cache_key].copy()
 
                             if "scorecard_calc_cache" not in st.session_state:
                                 st.session_state.scorecard_calc_cache = {}
@@ -2996,7 +2997,7 @@ if file:
                                         "Category": st.column_config.TextColumn(disabled=True),
                                         "Metric": st.column_config.TextColumn(disabled=True),
                                         "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f", help="Percentage contribution to final weighted score."),
-                                        "Weekly Target": st.column_config.NumberColumn(format="%.2f", help="Needed weekly output to be performed."),
+                                    "Weekly Target": st.column_config.TextColumn(disabled=True, help="Instruction/guide on expected weekly output."),
                                         "Week 1 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
                                         "Week 2 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
                                         "Week 3 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
@@ -3007,23 +3008,16 @@ if file:
                                 compute_clicked = st.form_submit_button("Compute scorecard")
 
                             if compute_clicked:
+                                st.session_state.scorecard_data_cache[cache_key] = edited.copy()
                                 st.session_state.scorecard_input_cache[cache_key] = edited.copy()
                                 calc = edited.copy()
-                                for col in ["Weekly Target", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
+                                for col in ["Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
                                     calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
 
                                 for w in [1, 2, 3, 4]:
                                     wk_col = f"Week {w} Actual Achievement"
-                                    # Vectorized scoring for speed.
-                                    base = np.where(
-                                        calc["Weekly Target"] > 0,
-                                        (calc[wk_col] / calc["Weekly Target"]) * 100.0,
-                                        0.0,
-                                    )
-                                    score = np.minimum(base, 100.0)
-                                    # Compliance metrics: pass/fail.
-                                    compliance_mask = calc["Metric"].astype(str).isin(["Attendance", "Zero Complaint"])
-                                    score = np.where(compliance_mask, np.where(calc[wk_col] <= 0, 100.0, 0.0), score)
+                                    # Week inputs are already achievement scores/percent; clamp to 0..100.
+                                    score = np.clip(calc[wk_col], 0.0, 100.0)
                                     calc[f"Week {w} Score %"] = score
 
                                 calc["TOTAL ACHIEVEMENT FTM %"] = calc[
