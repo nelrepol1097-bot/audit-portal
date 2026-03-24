@@ -2953,18 +2953,18 @@ if file:
                                 "Employee is selected from HR DATABASE (no manual typing), so input mistakes on name are prevented."
                             )
                             st.info(
-                                "Input rule: Fill only **Weekly Target**, **Actual**, and **Week 1-4 Actual Achievement**. "
+                                "Input rule: Fill only **Weekly Target** and **Week 1-4 Actual Achievement**. "
                                 "**Score %**, **TOTAL ACHIEVEMENT FTM %**, and **Weighted Achievement %** are auto-computed."
                             )
 
                             scorecard_rows = [
-                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Weekly Target": 10.0, "Actual": 0.0},
-                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Weekly Target": 10.0, "Actual": 0.0},
-                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Weekly Target": 5.0, "Actual": 0.0},
-                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Weekly Target": 4.0, "Actual": 0.0},
-                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Weekly Target": 7.0, "Actual": 0.0},
-                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Weekly Target": 0.0, "Actual": 0.0},
-                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Weekly Target": 0.0, "Actual": 0.0},
+                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Weekly Target": 10.0},
+                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Weekly Target": 10.0},
+                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Weekly Target": 5.0},
+                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Weekly Target": 4.0},
+                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Weekly Target": 7.0},
+                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Weekly Target": 0.0},
+                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Weekly Target": 0.0},
                             ]
                             card_df = pd.DataFrame(scorecard_rows)
                             for w in [1, 2, 3, 4]:
@@ -2997,7 +2997,6 @@ if file:
                                         "Metric": st.column_config.TextColumn(disabled=True),
                                         "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f", help="Percentage contribution to final weighted score."),
                                         "Weekly Target": st.column_config.NumberColumn(format="%.2f", help="Needed weekly output to be performed."),
-                                        "Actual": st.column_config.NumberColumn(format="%.2f", help="Current actual value."),
                                         "Week 1 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
                                         "Week 2 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
                                         "Week 3 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
@@ -3010,17 +3009,8 @@ if file:
                             if compute_clicked:
                                 st.session_state.scorecard_input_cache[cache_key] = edited.copy()
                                 calc = edited.copy()
-                                for col in ["Weekly Target", "Actual", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
+                                for col in ["Weekly Target", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
                                     calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
-
-                                # If weekly cells are blank/zero but Actual is provided, use Actual as fallback.
-                                for w in [1, 2, 3, 4]:
-                                    wk_col = f"Week {w} Actual Achievement"
-                                    calc[wk_col] = np.where(
-                                        (calc[wk_col] <= 0) & (calc["Actual"] > 0),
-                                        calc["Actual"],
-                                        calc[wk_col],
-                                    )
 
                                 for w in [1, 2, 3, 4]:
                                     wk_col = f"Week {w} Actual Achievement"
@@ -3088,7 +3078,6 @@ if file:
                                         "Metric",
                                         "Weight %",
                                         "Weekly Target",
-                                        "Actual",
                                         "Week 1 Actual Achievement",
                                         "Week 1 Score %",
                                         "Week 2 Actual Achievement",
