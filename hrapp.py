@@ -11,6 +11,7 @@ import base64
 import json
 from io import BytesIO
 from datetime import datetime
+from pathlib import Path
 import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
@@ -533,12 +534,21 @@ if file:
                 robot_img_uri = ""
         if not robot_img_uri:
             chopper_candidates = [
+                r"C:\Users\User\Desktop\HR APP\chopper.png",
+                r"C:\Users\User\Desktop\HR APP\chopper.jpg",
+                r"C:\Users\User\Desktop\HR APP\chopper.jpeg",
+                r"C:\Users\User\Desktop\HR APP\chopper.webp",
                 r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-09a03331-c5a0-4ad4-a3d1-48f7fb2db8df.png",
             ]
             for cp in chopper_candidates:
                 try:
+                    p = Path(cp)
+                    if not p.exists():
+                        continue
+                    ext = p.suffix.lower().replace(".", "")
+                    mime = "image/png" if ext not in ("jpg", "jpeg", "webp") else f"image/{ext if ext != 'jpg' else 'jpeg'}"
                     with open(cp, "rb") as f:
-                        robot_img_uri = "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
+                        robot_img_uri = f"data:{mime};base64," + base64.b64encode(f.read()).decode("ascii")
                     break
                 except Exception:
                     robot_img_uri = ""
@@ -562,7 +572,7 @@ if file:
                 f"""
                 <style>
                   .robot-panel {{
-                    position: relative; height: 225px; margin: 0.25rem 0 0.25rem 0;
+                    position: relative; height: 270px; margin: 0.25rem 0 0.25rem 0;
                     border-radius: 10px; overflow: hidden;
                     border: 1px solid rgba(0,234,255,.36);
                     background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
@@ -591,7 +601,7 @@ if file:
                   }}
                   .robot-img {{
                     position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
-                    width: min(96%, 500px); height:auto; max-height: 200px; object-fit: contain;
+                    width: min(97%, 560px); height:auto; max-height: 240px; object-fit: contain;
                     filter: grayscale(0.1) saturate(1.2) hue-rotate(155deg) brightness(1.15) contrast(1.1)
                             drop-shadow(0 0 7px rgba(0,234,255,.9))
                             drop-shadow(0 0 20px rgba(0,234,255,.45));
@@ -612,6 +622,10 @@ if file:
                     position:absolute; right:10px; top:8px;
                     background:rgba(0,234,255,.12); color:#bff8ff; border:1px solid rgba(0,234,255,.52);
                     border-radius:8px; padding:4px 9px; cursor:pointer; font:600 11px Rajdhani,Arial,sans-serif;
+                  }}
+                  .robot-help {{
+                    position:absolute; left:14px; bottom:8px; color:#9fefff; font:600 11px Rajdhani,Arial,sans-serif;
+                    text-shadow:0 0 8px rgba(0,234,255,.35);
                   }}
                   .robot-btn2 {{
                     position:absolute; right:10px; top:36px;
@@ -644,17 +658,20 @@ if file:
                   <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
                   <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
                   <div class="robot-glow"></div>
+                  <div class="robot-help">Tip: save image as C:\\Users\\User\\Desktop\\HR APP\\chopper.png</div>
                 </div>
                 <script>
+                  function pickChopperVoice() {{
+                    const vs = window.speechSynthesis.getVoices() || [];
+                    const preferred = vs.find(v => /zira|samantha|female|girl|en-us/i.test((v.name||'') + ' ' + (v.lang||'')));
+                    return preferred || vs.find(v => /en/i.test(v.lang||'')) || null;
+                  }}
                   function speakGM() {{
                     try {{
                       const u = new SpeechSynthesisUtterance("Good morning. Welcome to the HR Executive Dashboard.");
-                      u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-                      const vs = window.speechSynthesis.getVoices();
-                      if (vs && vs.length) {{
-                        const en = vs.find(v => /en/i.test(v.lang));
-                        if (en) u.voice = en;
-                      }}
+                      u.rate = 0.98; u.pitch = 1.45; u.volume = 1.0;
+                      const v = pickChopperVoice();
+                      if (v) u.voice = v;
                       window.speechSynthesis.cancel();
                       window.speechSynthesis.speak(u);
                     }} catch (e) {{}}
@@ -663,14 +680,16 @@ if file:
                     try {{
                       const t = "Here is your HR report. You can ask me for summary, tenure bracket, top company, top branch, and top department.";
                       const u = new SpeechSynthesisUtterance(t);
-                      u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+                      u.rate = 0.96; u.pitch = 1.35; u.volume = 1.0;
+                      const v = pickChopperVoice();
+                      if (v) u.voice = v;
                       window.speechSynthesis.cancel();
                       window.speechSynthesis.speak(u);
                     }} catch (e) {{}}
                   }}
                 </script>
                 """,
-                height=245,
+                height=290,
                 scrolling=False,
             )
 
