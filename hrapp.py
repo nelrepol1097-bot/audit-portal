@@ -16,6 +16,24 @@ import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
 
+
+@st.cache_data(show_spinner=False)
+def load_hr_workbook(file_bytes):
+    """Cache Excel sheet loading so UI interactions don't re-read workbook every rerun."""
+    core = pd.read_excel(BytesIO(file_bytes), sheet_name="HR DATABASE")
+
+    def read_optional(sheet_name):
+        try:
+            return pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name)
+        except Exception:
+            return None
+
+    info = read_optional("INFO")
+    fc_tbl = read_optional("FC Hiring Actual vs Target")
+    pcni_tbl = read_optional("PCNI Hiring Actual vs Target")
+    suki_tbl = read_optional("SUKI Hiring Actual vs. Target")
+    return core, info, fc_tbl, pcni_tbl, suki_tbl
+
 # =========================================================
 # 🌌 FUTURISTIC UI
 # =========================================================
@@ -205,28 +223,16 @@ file = st.file_uploader("Upload HR Master Excel", type=["xlsx"])
 
 if file:
 
-    # LOAD CORE
-    df = pd.read_excel(file, sheet_name="HR DATABASE")
+    # LOAD CORE (cached)
+    file_bytes = file.getvalue()
+    file_sig = f"{len(file_bytes)}:{hash(file_bytes)}"
+    df, df_info, fc, pcni, suki = load_hr_workbook(file_bytes)
     df.columns = df.columns.str.replace("\n"," ").str.strip().str.upper()
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # LOAD INFO
-    try:
-        df_info = pd.read_excel(file, sheet_name="INFO")
+    # NORMALIZE INFO (already loaded from cache)
+    if df_info is not None:
         df_info.columns = df_info.columns.str.upper().str.strip()
-    except Exception:
-        df_info = None
-
-    # LOAD HIRING
-    def safe_sheet(name):
-        try:
-            return pd.read_excel(file, sheet_name=name)
-        except Exception:
-            return None
-
-    fc = safe_sheet("FC Hiring Actual vs Target")
-    pcni = safe_sheet("PCNI Hiring Actual vs Target")
-    suki = safe_sheet("SUKI Hiring Actual vs. Target")
 
     # =========================================================
     # AUTO DETECT
@@ -396,9 +402,24 @@ if file:
     df_ml = df.dropna(subset=features)
 
     if not df_ml.empty and df_ml["IS_ATTRITION"].nunique()>1:
-        model = RandomForestClassifier()
-        model.fit(df_ml[features], df_ml["IS_ATTRITION"])
-        df["RISK_SCORE"] = model.predict_proba(df[features].fillna(0))[:,1]
+        # Reuse risk results for same file upload to keep interaction fast.
+        if (
+            st.session_state.get("_risk_cache_sig") == file_sig
+            and "_risk_cache_vals" in st.session_state
+            and len(st.session_state["_risk_cache_vals"]) == len(df)
+        ):
+            df["RISK_SCORE"] = st.session_state["_risk_cache_vals"]
+        else:
+            model = RandomForestClassifier(
+                n_estimators=80,
+                max_depth=10,
+                random_state=42,
+                n_jobs=-1,
+            )
+            model.fit(df_ml[features], df_ml["IS_ATTRITION"])
+            df["RISK_SCORE"] = model.predict_proba(df[features].fillna(0))[:,1]
+            st.session_state["_risk_cache_sig"] = file_sig
+            st.session_state["_risk_cache_vals"] = df["RISK_SCORE"].tolist()
     else:
         df["RISK_SCORE"] = 0
 
@@ -2961,94 +2982,143 @@ if file:
                                 except Exception:
                                     pass
 
-                            edited = st.data_editor(
-                                card_df,
-                                use_container_width=True,
-                                hide_index=True,
-                                num_rows="fixed",
-                                key=f"scorecard_card_editor::{picked_name}",
-                                column_config={
-                                    "Category": st.column_config.TextColumn(disabled=True),
-                                    "Metric": st.column_config.TextColumn(disabled=True),
-                                    "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f", help="Percentage contribution to final weighted score."),
-                                    "Weekly Target": st.column_config.NumberColumn(format="%.2f", help="Needed weekly output to be performed."),
-                                    "Actual": st.column_config.NumberColumn(format="%.2f", help="Current actual value."),
-                                    "Week 1 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 2 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 3 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 4 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
-                                    "Notes": st.column_config.TextColumn(),
-                                },
-                            )
-                            st.session_state.scorecard_input_cache[cache_key] = edited.copy()
+                            if "scorecard_calc_cache" not in st.session_state:
+                                st.session_state.scorecard_calc_cache = {}
 
-                            calc = edited.copy()
-                            for col in ["Weekly Target", "Actual", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
-                                calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
-
-                            def week_score(actual, target, metric_name):
-                                # Compliance rows in this template are pass/fail checks (0 complaint, 0 absence).
-                                if metric_name in ("Attendance", "Zero Complaint"):
-                                    return 100.0 if float(actual) <= 0 else 0.0
-                                if float(target) <= 0:
-                                    return 0.0
-                                return min((float(actual) / float(target)) * 100.0, 100.0)
-
-                            for w in [1, 2, 3, 4]:
-                                calc[f"Week {w} Score %"] = calc.apply(
-                                    lambda r: week_score(r[f"Week {w} Actual Achievement"], r["Weekly Target"], str(r["Metric"])),
-                                    axis=1,
+                            with st.form(key=f"scorecard_form::{picked_name}", clear_on_submit=False):
+                                edited = st.data_editor(
+                                    card_df,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    num_rows="fixed",
+                                    key=f"scorecard_card_editor::{picked_name}",
+                                    column_config={
+                                        "Category": st.column_config.TextColumn(disabled=True),
+                                        "Metric": st.column_config.TextColumn(disabled=True),
+                                        "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f", help="Percentage contribution to final weighted score."),
+                                        "Weekly Target": st.column_config.NumberColumn(format="%.2f", help="Needed weekly output to be performed."),
+                                        "Actual": st.column_config.NumberColumn(format="%.2f", help="Current actual value."),
+                                        "Week 1 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                        "Week 2 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                        "Week 3 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                        "Week 4 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                        "Notes": st.column_config.TextColumn(),
+                                    },
                                 )
+                                compute_clicked = st.form_submit_button("Compute scorecard")
 
-                            calc["TOTAL ACHIEVEMENT FTM %"] = calc[
-                                [f"Week {w} Score %" for w in [1, 2, 3, 4]]
-                            ].mean(axis=1)
-                            calc["Weighted Achievement %"] = calc["TOTAL ACHIEVEMENT FTM %"] * (calc["Weight %"] / 100.0)
+                            if compute_clicked:
+                                st.session_state.scorecard_input_cache[cache_key] = edited.copy()
+                                calc = edited.copy()
+                                for col in ["Weekly Target", "Actual", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
+                                    calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
 
-                            total_weighted = float(calc["Weighted Achievement %"].sum())
-                            by_cat = (
-                                calc.groupby("Category", dropna=False)["Weighted Achievement %"]
-                                .sum()
-                                .reset_index()
-                                .sort_values("Weighted Achievement %", ascending=False)
-                            )
+                                # If weekly cells are blank/zero but Actual is provided, use Actual as fallback.
+                                for w in [1, 2, 3, 4]:
+                                    wk_col = f"Week {w} Actual Achievement"
+                                    calc[wk_col] = np.where(
+                                        (calc[wk_col] <= 0) & (calc["Actual"] > 0),
+                                        calc["Actual"],
+                                        calc[wk_col],
+                                    )
 
-                            s1, s2, s3 = st.columns(3)
-                            s1.metric("Selected employee", picked_name)
-                            s2.metric("Total weighted score", f"{total_weighted:.2f}%")
-                            s3.metric("Rows tracked", f"{len(calc)}")
+                                for w in [1, 2, 3, 4]:
+                                    wk_col = f"Week {w} Actual Achievement"
+                                    # Vectorized scoring for speed.
+                                    base = np.where(
+                                        calc["Weekly Target"] > 0,
+                                        (calc[wk_col] / calc["Weekly Target"]) * 100.0,
+                                        0.0,
+                                    )
+                                    score = np.minimum(base, 100.0)
+                                    # Compliance metrics: pass/fail.
+                                    compliance_mask = calc["Metric"].astype(str).isin(["Attendance", "Zero Complaint"])
+                                    score = np.where(compliance_mask, np.where(calc[wk_col] <= 0, 100.0, 0.0), score)
+                                    calc[f"Week {w} Score %"] = score
 
-                            with st.expander("Computed scorecard report", expanded=True):
-                                report_cols = [
-                                    "Category",
-                                    "Metric",
-                                    "Weight %",
-                                    "Weekly Target",
-                                    "Actual",
-                                    "Week 1 Actual Achievement",
-                                    "Week 1 Score %",
-                                    "Week 2 Actual Achievement",
-                                    "Week 2 Score %",
-                                    "Week 3 Actual Achievement",
-                                    "Week 3 Score %",
-                                    "Week 4 Actual Achievement",
-                                    "Week 4 Score %",
-                                    "TOTAL ACHIEVEMENT FTM %",
-                                    "Weighted Achievement %",
-                                    "Notes",
-                                ]
-                                st.dataframe(calc[report_cols], use_container_width=True, hide_index=True)
-                                st.caption("Category contribution to final weighted score")
-                                st.dataframe(by_cat, use_container_width=True, hide_index=True)
+                                calc["TOTAL ACHIEVEMENT FTM %"] = calc[
+                                    [f"Week {w} Score %" for w in [1, 2, 3, 4]]
+                                ].mean(axis=1)
+                                calc["Weighted Achievement %"] = calc["TOTAL ACHIEVEMENT FTM %"] * (calc["Weight %"] / 100.0)
+
+                                total_weighted = float(calc["Weighted Achievement %"].sum())
+                                wk_totals = {
+                                    w: float((calc[f"Week {w} Score %"] * (calc["Weight %"] / 100.0)).sum())
+                                    for w in [1, 2, 3, 4]
+                                }
+                                by_cat = (
+                                    calc.groupby("Category", dropna=False)["Weighted Achievement %"]
+                                    .sum()
+                                    .reset_index()
+                                    .sort_values("Weighted Achievement %", ascending=False)
+                                )
+                                st.session_state.scorecard_calc_cache[cache_key] = {
+                                    "calc": calc.copy(),
+                                    "by_cat": by_cat.copy(),
+                                    "total_weighted": total_weighted,
+                                    "wk_totals": wk_totals,
+                                }
+
+                            calc_pack = st.session_state.scorecard_calc_cache.get(cache_key)
+                            if calc_pack:
+                                calc = calc_pack["calc"]
+                                by_cat = calc_pack["by_cat"]
+                                total_weighted = float(calc_pack["total_weighted"])
+                                wk_totals = calc_pack["wk_totals"]
+
+                                s1, s2, s3 = st.columns(3)
+                                s1.metric("Selected employee", picked_name)
+                                s2.metric("Total weighted score", f"{total_weighted:.2f}%")
+                                s3.metric("Rows tracked", f"{len(calc)}")
+
+                                r1, r2, r3, r4, r5 = st.columns(5)
+                                r1.metric("Week 1 weighted", f"{wk_totals[1]:.2f}%")
+                                r2.metric("Week 2 weighted", f"{wk_totals[2]:.2f}%")
+                                r3.metric("Week 3 weighted", f"{wk_totals[3]:.2f}%")
+                                r4.metric("Week 4 weighted", f"{wk_totals[4]:.2f}%")
+                                r5.metric("FTM weighted result", f"{total_weighted:.2f}%")
+                                if total_weighted <= 0:
+                                    st.warning(
+                                        "No computed result yet. Fill **Weekly Target** and either **Actual** or week achievement fields."
+                                    )
+
+                                with st.expander("Computed scorecard report", expanded=True):
+                                    report_cols = [
+                                        "Category",
+                                        "Metric",
+                                        "Weight %",
+                                        "Weekly Target",
+                                        "Actual",
+                                        "Week 1 Actual Achievement",
+                                        "Week 1 Score %",
+                                        "Week 2 Actual Achievement",
+                                        "Week 2 Score %",
+                                        "Week 3 Actual Achievement",
+                                        "Week 3 Score %",
+                                        "Week 4 Actual Achievement",
+                                        "Week 4 Score %",
+                                        "TOTAL ACHIEVEMENT FTM %",
+                                        "Weighted Achievement %",
+                                        "Notes",
+                                    ]
+                                    st.dataframe(calc[report_cols], use_container_width=True, hide_index=True)
+                                    st.caption("Category contribution to final weighted score")
+                                    st.dataframe(by_cat, use_container_width=True, hide_index=True)
+                            else:
+                                st.caption("Click **Compute scorecard** after input to render results.")
 
                             if "scorecard_saved_snapshots" not in st.session_state:
                                 st.session_state.scorecard_saved_snapshots = []
                             if st.button("Save scorecard snapshot", key=f"save_scorecard_snapshot::{picked_name}"):
-                                snapshot = calc.copy()
-                                snapshot.insert(0, "Employee", picked_name)
-                                snapshot.insert(1, "Saved at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                                st.session_state.scorecard_saved_snapshots.append(snapshot)
-                                st.success("Scorecard snapshot saved.")
+                                calc_pack = st.session_state.scorecard_calc_cache.get(cache_key)
+                                if not calc_pack:
+                                    st.warning("Compute scorecard first before saving snapshot.")
+                                else:
+                                    snapshot = calc_pack["calc"].copy()
+                                    snapshot.insert(0, "Employee", picked_name)
+                                    snapshot.insert(1, "Saved at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                    st.session_state.scorecard_saved_snapshots.append(snapshot)
+                                    st.success("Scorecard snapshot saved.")
 
                             if st.session_state.scorecard_saved_snapshots:
                                 snap_all = pd.concat(st.session_state.scorecard_saved_snapshots, ignore_index=True)
