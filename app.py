@@ -1140,7 +1140,7 @@ def branch_tin_address():
         unsafe_allow_html=True,
     )
 
-    # ---------- helpers ----------
+    # ---------- robust sanitizers ----------
     def _clean_scalar(v):
         if v is None:
             return None
@@ -1331,9 +1331,56 @@ def branch_tin_address():
         out = _ensure_columns(out, full_cols)
         return _sanitize_for_db(out, date_cols=["DATE_OPEN", "DATE_OF_CLOSURE"])
 
+    def merge_changed_view_to_full(df_full: pd.DataFrame, edited: pd.DataFrame) -> pd.DataFrame:
+        base_map = {
+            int(r["ID"]): r.to_dict()
+            for _, r in df_full.iterrows()
+            if pd.notna(r.get("ID"))
+        }
+
+        rows = []
+        for _, er in edited.iterrows():
+            eid = pd.to_numeric(er.get("ID"), errors="coerce")
+
+            # required pane columns: COMPANY, BRANCH, ADDRESS (NEW ADDRESS), ADDRESS (OLD ADDRESS)
+            branch_val = _clean_scalar(er.get("BRANCH")) or _clean_scalar(er.get("BRANCH_NAME"))
+            new_addr = _clean_scalar(er.get("ADDRESS (NEW ADDRESS)")) or _clean_scalar(er.get("UPDATED_ADDRESS"))
+            old_addr = _clean_scalar(er.get("ADDRESS (OLD ADDRESS)")) or _clean_scalar(er.get("OLD_ADDRESS"))
+            extra = f" | Previous address (from view): {old_addr}" if old_addr else ""
+
+            if pd.notna(eid) and int(eid) in base_map:
+                b = base_map[int(eid)].copy()
+                b["COMPANY"] = _clean_scalar(er.get("COMPANY")) or company
+                b["STATUS"] = "CHANGED"
+                b["BRANCH_NAME"] = branch_val or b.get("BRANCH_NAME")
+                b["UPDATED_ADDRESS"] = new_addr or b.get("UPDATED_ADDRESS")
+                b["REMARKS"] = f"{REMARK_CHANGED_VIEW}{extra}"
+                rows.append(b)
+            else:
+                rows.append(
+                    {
+                        "ID": None,
+                        "COMPANY": _clean_scalar(er.get("COMPANY")) or company,
+                        "TIN": None,
+                        "BRANCH_CODE": None,
+                        "RDO": None,
+                        "AREA": None,
+                        "BRANCH_NAME": branch_val,
+                        "UPDATED_ADDRESS": new_addr,
+                        "STATUS": "CHANGED",
+                        "DATE_OPEN": None,
+                        "DATE_OF_CLOSURE": None,
+                        "REMARKS": f"{REMARK_CHANGED_VIEW}{extra}",
+                    }
+                )
+
+        out = pd.DataFrame(rows)
+        out = _ensure_columns(out, full_cols)
+        return _sanitize_for_db(out, date_cols=["DATE_OPEN", "DATE_OF_CLOSURE"])
+
     def _merge_partial_into_full(df_full: pd.DataFrame, df_partial: pd.DataFrame) -> pd.DataFrame:
         """
-        Merge sub-view payload (NEW/CHANGED) into full snapshot so
+        Merge sub-view payload (NEW/CHANGED) into full table snapshot so
         handle_save_with_id doesn't treat hidden rows as deletions.
         """
         full = _ensure_columns(df_full, full_cols).copy().astype(object)
@@ -1412,7 +1459,17 @@ def branch_tin_address():
         df_new = df[df["STATUS"].astype(str).str.strip().str.upper() == "NEW"].copy()
         if df_new.empty:
             df_new = pd.DataFrame(
-                columns=["ID", "COMPANY", "BRANCH_NAME", "ADDRESS", "DATE_OPEN", "AREA", "TIN", "BRANCH_CODE", "RDO"]
+                columns=[
+                    "ID",
+                    "COMPANY",
+                    "BRANCH_NAME",
+                    "ADDRESS",
+                    "DATE_OPEN",
+                    "AREA",
+                    "TIN",
+                    "BRANCH_CODE",
+                    "RDO",
+                ]
             )
         else:
             df_new["ADDRESS"] = df_new["UPDATED_ADDRESS"]
@@ -1458,16 +1515,22 @@ def branch_tin_address():
 
         df_changed = df[df["STATUS"].astype(str).str.strip().str.upper() == "CHANGED"].copy()
 
-        if "OLD_ADDRESS" not in df_changed.columns:
-            df_changed["OLD_ADDRESS"] = None
-        df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
+        if df_changed.empty:
+            df_changed = pd.DataFrame(
+                columns=["ID", "COMPANY", "BRANCH", "ADDRESS (NEW ADDRESS)", "ADDRESS (OLD ADDRESS)"]
+            )
+        else:
+            df_changed["BRANCH"] = df_changed["BRANCH_NAME"]
+            df_changed["ADDRESS (NEW ADDRESS)"] = df_changed["UPDATED_ADDRESS"]
+            if "ADDRESS (OLD ADDRESS)" not in df_changed.columns:
+                df_changed["ADDRESS (OLD ADDRESS)"] = None
 
-        for c in ["ID", "COMPANY", "BRANCH_NAME", "ADDRESS (NEW ADDRESS)", "OLD_ADDRESS", "AREA", "TIN", "BRANCH_CODE", "RDO"]:
+        for c in ["ID", "COMPANY", "BRANCH", "ADDRESS (NEW ADDRESS)", "ADDRESS (OLD ADDRESS)"]:
             if c not in df_changed.columns:
                 df_changed[c] = None
 
         edited_ch = st.data_editor(
-            df_changed[["ID", "COMPANY", "BRANCH_NAME", "ADDRESS (NEW ADDRESS)", "OLD_ADDRESS", "AREA", "TIN", "BRANCH_CODE", "RDO"]],
+            df_changed[["ID", "COMPANY", "BRANCH", "ADDRESS (NEW ADDRESS)", "ADDRESS (OLD ADDRESS)"]],
             num_rows="dynamic",
             use_container_width=True,
             key=f"{company}_changed_editor",
@@ -1477,98 +1540,24 @@ def branch_tin_address():
         )
 
         if st.button("💾 Save Changes (Changed Address View)", key=f"{company}_save_changed"):
-            try:
-                payload = edited_ch.copy()
-                if "ADDRESS (NEW ADDRESS)" in payload.columns:
-                    payload = payload.rename(columns={"ADDRESS (NEW ADDRESS)": "UPDATED_ADDRESS"})
+            partial_save = merge_changed_view_to_full(df, edited_ch)
+            to_save = _merge_partial_into_full(df, partial_save)
 
-                for c in ["ID", "COMPANY", "BRANCH_NAME", "UPDATED_ADDRESS", "OLD_ADDRESS", "AREA", "TIN", "BRANCH_CODE", "RDO"]:
-                    if c not in payload.columns:
-                        payload[c] = None
+            handle_save_with_id(
+                df_name_prefix=key_prefix,
+                table_name="BRANCH_TIN_ADDRESS",
+                df=to_save,
+                id_col="ID",
+                insert_sql=insert_sql,
+                update_sql=update_sql,
+                insert_cols=insert_cols,
+                update_cols=update_cols,
+            )
 
-                payload["COMPANY"] = payload["COMPANY"].fillna(company).replace("", company)
-                payload["ID"] = pd.to_numeric(payload["ID"], errors="coerce")
-
-                conn, cursor = get_cursor()
-                saved_updates = 0
-                saved_inserts = 0
-
-                for _, r in payload.iterrows():
-                    rid = r.get("ID")
-                    old_addr = _clean_scalar(r.get("OLD_ADDRESS"))
-                    extra = f" | Previous address (from view): {old_addr}" if old_addr else ""
-                    remarks_val = f"{REMARK_CHANGED_VIEW}{extra}"
-
-                    company_val = _clean_scalar(r.get("COMPANY")) or company
-                    tin_val = _clean_scalar(r.get("TIN"))
-                    branch_code_val = _clean_scalar(r.get("BRANCH_CODE"))
-                    rdo_val = _clean_scalar(r.get("RDO"))
-                    area_val = _clean_scalar(r.get("AREA"))
-                    branch_name_val = _clean_scalar(r.get("BRANCH_NAME"))
-                    updated_address_val = _clean_scalar(r.get("UPDATED_ADDRESS"))
-
-                    if pd.notna(rid):
-                        cursor.execute(
-                            """
-                            UPDATE BRANCH_TIN_ADDRESS
-                            SET
-                                COMPANY=%s,
-                                TIN=%s,
-                                BRANCH_CODE=%s,
-                                RDO=%s,
-                                AREA=%s,
-                                BRANCH_NAME=%s,
-                                UPDATED_ADDRESS=%s,
-                                STATUS=%s,
-                                REMARKS=%s
-                            WHERE ID=%s
-                            """,
-                            (
-                                company_val,
-                                tin_val,
-                                branch_code_val,
-                                rdo_val,
-                                area_val,
-                                branch_name_val,
-                                updated_address_val,
-                                "CHANGED",
-                                remarks_val,
-                                int(rid),
-                            ),
-                        )
-                        saved_updates += 1
-                    else:
-                        cursor.execute(
-                            """
-                            INSERT INTO BRANCH_TIN_ADDRESS
-                            (COMPANY, TIN, BRANCH_CODE, RDO, AREA, BRANCH_NAME, UPDATED_ADDRESS, STATUS, DATE_OPEN, DATE_OF_CLOSURE, REMARKS)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                company_val,
-                                tin_val,
-                                branch_code_val,
-                                rdo_val,
-                                area_val,
-                                branch_name_val,
-                                updated_address_val,
-                                "CHANGED",
-                                None,
-                                None,
-                                remarks_val,
-                            ),
-                        )
-                        saved_inserts += 1
-
-                conn.commit()
-
-                load_data.clear()
-                st.session_state[orig_key] = load_data(company)
-                st.success(f"Changed address view saved ✅ (updated: {saved_updates}, inserted: {saved_inserts})")
-                safe_rerun()
-
-            except Exception as e:
-                st.error(f"Changed address save failed: {e}")
+            load_data.clear()
+            st.session_state[orig_key] = load_data(company)
+            st.success("Changed address view saved ✅")
+            safe_rerun()
 # -----------------------------------------------------
 # BUsiness Permit
 # -----------------------------------------------------
