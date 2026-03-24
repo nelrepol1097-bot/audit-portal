@@ -194,6 +194,7 @@ page = st.sidebar.radio("📊 Navigation", [
     "📉 Attrition Intelligence",
     "🎯 Hiring vs Target",
     "😊 eNPS Survey",
+    "📋 Employee Scorecard Monitoring",
     "🧠 Executive Story"
 ])
 
@@ -2838,6 +2839,239 @@ if file:
                             st.dataframe(out_tbl, use_container_width=True, height=420)
             elif not errors:
                 st.info("No data rows found in the uploaded file(s).")
+
+    # =========================================================
+    # 📋 EMPLOYEE SCORECARD MONITORING
+    # =========================================================
+    if page == "📋 Employee Scorecard Monitoring":
+        st.title("📋 Employee Scorecard Monitoring")
+
+        if not col_name:
+            st.warning("No employee name column detected. Add a **NAME** column in HR DATABASE.")
+        else:
+            work_df = df.copy()
+            if col_status:
+                scorecard_scope = st.radio(
+                    "Scope",
+                    ["All", "Active only", "Inactive only"],
+                    horizontal=True,
+                    index=0,
+                    key="scorecard_scope",
+                )
+                mask_sc = compute_active_mask(work_df[col_status])
+                if scorecard_scope == "Active only":
+                    work_df = work_df.loc[mask_sc].copy()
+                elif scorecard_scope == "Inactive only":
+                    work_df = work_df.loc[~mask_sc].copy()
+
+            if work_df.empty:
+                st.info("No rows available for this scorecard scope.")
+            else:
+                name_series = work_df[col_name].astype(str).str.strip()
+                name_series = name_series[name_series != ""]
+                all_names = sorted(name_series.dropna().unique().tolist())
+                if not all_names:
+                    st.info("No employee names available.")
+                else:
+                    q = st.text_input(
+                        "Find employee",
+                        key="scorecard_find_employee",
+                        placeholder="Type employee name...",
+                    ).strip().lower()
+                    filtered_names = [n for n in all_names if q in n.lower()] if q else all_names
+                    if not filtered_names:
+                        st.warning("No employee matched your search.")
+                    else:
+                        picked_name = st.selectbox(
+                            "Select employee",
+                            filtered_names,
+                            key="scorecard_employee_select",
+                        )
+                        emp_rows = work_df[work_df[col_name].astype(str).str.strip() == picked_name].copy()
+                        if emp_rows.empty:
+                            st.info("No records found for selected employee.")
+                        else:
+                            if col_date_filter and "_HR_FILTER_DATE" in emp_rows.columns:
+                                emp_rows = emp_rows.sort_values("_HR_FILTER_DATE")
+                            latest = emp_rows.iloc[-1]
+
+                            def safe_get(col, default="—"):
+                                if not col or col not in emp_rows.columns:
+                                    return default
+                                v = latest[col]
+                                if pd.isna(v):
+                                    return default
+                                sv = str(v).strip()
+                                return sv if sv else default
+
+                            risk_val = float(latest["RISK_SCORE"]) if "RISK_SCORE" in emp_rows.columns and pd.notna(latest["RISK_SCORE"]) else 0.0
+                            if risk_val >= 0.70:
+                                risk_band = "High"
+                            elif risk_val >= 0.40:
+                                risk_band = "Medium"
+                            else:
+                                risk_band = "Low"
+
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("Employee", picked_name)
+                            c2.metric("Status", safe_get(col_status))
+                            c3.metric("Risk score", f"{risk_val:.2f}")
+                            c4.metric("Risk band", risk_band)
+
+                            c5, c6, c7, c8 = st.columns(4)
+                            c5.metric("Company", safe_get(col_company))
+                            c6.metric("Department", safe_get(col_dept))
+                            c7.metric("Branch", safe_get(col_branch))
+                            if "TENURE_NUM" in emp_rows.columns and pd.notna(latest.get("TENURE_NUM", np.nan)):
+                                c8.metric("Tenure (months)", f"{float(latest['TENURE_NUM']):.0f}")
+                            else:
+                                c8.metric("Tenure (months)", "—")
+
+                            st.markdown("#### Weekly scorecard card")
+                            st.caption(
+                                "Employee is selected from HR DATABASE (no manual typing), so input mistakes on name are prevented."
+                            )
+
+                            scorecard_rows = [
+                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Target": 10.0},
+                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Target": 10.0},
+                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Target": 5.0},
+                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Target": 4.0},
+                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Target": 7.0},
+                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Target": 0.0},
+                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Target": 0.0},
+                            ]
+                            card_df = pd.DataFrame(scorecard_rows)
+                            for w in [1, 2, 3, 4]:
+                                card_df[f"Week {w} Actual"] = 0.0
+                            card_df["Notes"] = ""
+
+                            if "scorecard_input_cache" not in st.session_state:
+                                st.session_state.scorecard_input_cache = {}
+                            cache_key = f"sc::{picked_name}"
+                            if cache_key in st.session_state.scorecard_input_cache:
+                                try:
+                                    prev_df = st.session_state.scorecard_input_cache[cache_key]
+                                    for c in [x for x in prev_df.columns if x in card_df.columns]:
+                                        card_df[c] = prev_df[c]
+                                except Exception:
+                                    pass
+
+                            edited = st.data_editor(
+                                card_df,
+                                use_container_width=True,
+                                hide_index=True,
+                                num_rows="fixed",
+                                key=f"scorecard_card_editor::{picked_name}",
+                                column_config={
+                                    "Category": st.column_config.TextColumn(disabled=True),
+                                    "Metric": st.column_config.TextColumn(disabled=True),
+                                    "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f"),
+                                    "Target": st.column_config.NumberColumn(format="%.2f", help="Expected weekly target."),
+                                    "Week 1 Actual": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 2 Actual": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 3 Actual": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 4 Actual": st.column_config.NumberColumn(format="%.2f"),
+                                    "Notes": st.column_config.TextColumn(),
+                                },
+                            )
+                            st.session_state.scorecard_input_cache[cache_key] = edited.copy()
+
+                            calc = edited.copy()
+                            for col in ["Target", "Week 1 Actual", "Week 2 Actual", "Week 3 Actual", "Week 4 Actual", "Weight %"]:
+                                calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
+
+                            def week_score(actual, target, metric_name):
+                                # Compliance rows in this template are pass/fail checks (0 complaint, 0 absence).
+                                if metric_name in ("Attendance", "Zero Complaint"):
+                                    return 100.0 if float(actual) <= 0 else 0.0
+                                if float(target) <= 0:
+                                    return 0.0
+                                return min((float(actual) / float(target)) * 100.0, 100.0)
+
+                            for w in [1, 2, 3, 4]:
+                                calc[f"Week {w} Score %"] = calc.apply(
+                                    lambda r: week_score(r[f"Week {w} Actual"], r["Target"], str(r["Metric"])),
+                                    axis=1,
+                                )
+
+                            calc["TOTAL ACHIEVEMENT FTM %"] = calc[
+                                [f"Week {w} Score %" for w in [1, 2, 3, 4]]
+                            ].mean(axis=1)
+                            calc["Weighted Achievement %"] = calc["TOTAL ACHIEVEMENT FTM %"] * (calc["Weight %"] / 100.0)
+
+                            total_weighted = float(calc["Weighted Achievement %"].sum())
+                            by_cat = (
+                                calc.groupby("Category", dropna=False)["Weighted Achievement %"]
+                                .sum()
+                                .reset_index()
+                                .sort_values("Weighted Achievement %", ascending=False)
+                            )
+
+                            s1, s2, s3 = st.columns(3)
+                            s1.metric("Selected employee", picked_name)
+                            s2.metric("Total weighted score", f"{total_weighted:.2f}%")
+                            s3.metric("Rows tracked", f"{len(calc)}")
+
+                            with st.expander("Computed scorecard report", expanded=True):
+                                report_cols = [
+                                    "Category",
+                                    "Metric",
+                                    "Weight %",
+                                    "Target",
+                                    "Week 1 Actual",
+                                    "Week 1 Score %",
+                                    "Week 2 Actual",
+                                    "Week 2 Score %",
+                                    "Week 3 Actual",
+                                    "Week 3 Score %",
+                                    "Week 4 Actual",
+                                    "Week 4 Score %",
+                                    "TOTAL ACHIEVEMENT FTM %",
+                                    "Weighted Achievement %",
+                                    "Notes",
+                                ]
+                                st.dataframe(calc[report_cols], use_container_width=True, hide_index=True)
+                                st.caption("Category contribution to final weighted score")
+                                st.dataframe(by_cat, use_container_width=True, hide_index=True)
+
+                            if "scorecard_saved_snapshots" not in st.session_state:
+                                st.session_state.scorecard_saved_snapshots = []
+                            if st.button("Save scorecard snapshot", key=f"save_scorecard_snapshot::{picked_name}"):
+                                snapshot = calc.copy()
+                                snapshot.insert(0, "Employee", picked_name)
+                                snapshot.insert(1, "Saved at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                st.session_state.scorecard_saved_snapshots.append(snapshot)
+                                st.success("Scorecard snapshot saved.")
+
+                            if st.session_state.scorecard_saved_snapshots:
+                                snap_all = pd.concat(st.session_state.scorecard_saved_snapshots, ignore_index=True)
+                                with st.expander("Saved scorecard snapshots", expanded=False):
+                                    st.dataframe(snap_all, use_container_width=True, hide_index=True)
+
+                            st.markdown("#### Scorecard profile")
+                            profile_cols = [c for c in [col_name, col_company, col_dept, col_branch, col_position, col_status, col_age] if c and c in emp_rows.columns]
+                            if "TENURE_NUM" in emp_rows.columns:
+                                profile_cols.append("TENURE_NUM")
+                            if "RISK_SCORE" in emp_rows.columns:
+                                profile_cols.append("RISK_SCORE")
+                            profile_tbl = emp_rows[profile_cols].copy().tail(10)
+                            st.dataframe(profile_tbl, use_container_width=True)
+
+                            st.markdown("#### Monitoring")
+                            if col_dept and col_dept in emp_rows.columns:
+                                dept_val = safe_get(col_dept, "")
+                                if dept_val and dept_val != "—":
+                                    peers = work_df[work_df[col_dept].astype(str).str.strip() == dept_val].copy()
+                                    if not peers.empty and "RISK_SCORE" in peers.columns:
+                                        peer_cols = [c for c in [col_name, col_status, col_position] if c and c in peers.columns] + ["RISK_SCORE"]
+                                        peers = peers.sort_values("RISK_SCORE", ascending=False)
+                                        st.caption(f"Top risk employees in **{dept_val}**")
+                                        st.dataframe(peers[peer_cols].head(20), use_container_width=True)
+                                    else:
+                                        st.caption("No peer risk data available for this department.")
+                                else:
+                                    st.caption("Department not available for selected employee.")
 
     # =========================================================
     # 🧠 EXECUTIVE STORY
