@@ -1080,6 +1080,23 @@ if file:
                     f"{top_company_txt}{top_dept_txt} "
                     "Ask: 'show employee details' to open the table."
                 )
+            if (
+                ("top" in q or "highest" in q or "most" in q)
+                and ("reason for leaving" in q or "reasons for leaving" in q or ("reason" in q and "leave" in q))
+            ):
+                if not col_leave_reason or col_leave_reason not in fdf.columns:
+                    return "I cannot find a leave-reason column in this file."
+                mtop = re.search(r"\btop\s+(\d{1,2})\b", q)
+                n_top = int(mtop.group(1)) if mtop else 15
+                n_top = max(1, min(n_top, 20))
+                rs = fdf[col_leave_reason].astype(str).str.strip()
+                rs = rs.replace({"nan": "", "None": ""})
+                rs = rs[rs.str.len() > 0]
+                if rs.empty:
+                    return "No reason-for-leaving values found in the current filtered data."
+                top_r = rs.value_counts().head(n_top)
+                lines = [f"{i}. {k} ({int(v)})" for i, (k, v) in enumerate(top_r.items(), start=1)]
+                return f"Top {len(lines)} reasons for leaving:\n" + "\n".join(lines)
             if "employee details" in q or "employee detail" in q or "show employees" in q:
                 return "show_data"
             if "tenure" in q and ("bracket" in q or "band" in q):
