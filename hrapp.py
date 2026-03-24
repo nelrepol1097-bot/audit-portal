@@ -460,6 +460,14 @@ if file:
                 key="main_robot_img_upload",
                 help="Upload a robot image if you want a custom assistant look.",
             )
+            if "robot_voice_profile" not in st.session_state:
+                st.session_state.robot_voice_profile = "Professional Female"
+            st.selectbox(
+                "Robot voice profile",
+                ["Professional Female", "Chopper-like", "Neutral"],
+                key="robot_voice_profile",
+                help="Changes the speaking style for robot panel and chat replies.",
+            )
         with row_top[1]:
             if col_date_filter and "_HR_FILTER_DATE" in df.columns:
                 vd_all = df["_HR_FILTER_DATE"].dropna()
@@ -581,6 +589,16 @@ if file:
                     background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
                     box-shadow: inset 0 0 28px rgba(0,234,255,.14), 0 0 16px rgba(0,234,255,.16);
                   }}
+                  .robot-panel::after {{
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    pointer-events: none;
+                    background:
+                      radial-gradient(circle at 50% 78%, rgba(0, 234, 255, .16), transparent 34%),
+                      linear-gradient(180deg, rgba(0,234,255,.06) 0%, transparent 38%, rgba(0,234,255,.07) 100%);
+                    mix-blend-mode: screen;
+                  }}
                   .robot-panel::before {{
                     content: "";
                     position: absolute;
@@ -602,19 +620,37 @@ if file:
                     pointer-events:none;
                     animation: flicker 1.9s steps(2, end) infinite;
                   }}
+                  .robot-stage {{
+                    position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+                    width:min(96%, 560px); height:220px;
+                    display:flex; align-items:flex-end; justify-content:center;
+                  }}
                   .robot-img {{
-                    position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
-                    width: min(97%, 560px); height:auto; max-height: 240px; object-fit: contain;
-                    filter: grayscale(0.08) saturate(1.12) brightness(1.12) contrast(1.08)
+                    width: auto;
+                    max-width: 88%;
+                    height: 88%;
+                    object-fit: contain;
+                    object-position: center bottom;
+                    filter: grayscale(0.05) saturate(1.08) brightness(1.08) contrast(1.08)
                             drop-shadow(0 0 7px rgba(0,234,255,.9))
                             drop-shadow(0 0 20px rgba(0,234,255,.45));
-                    opacity: 0.9;
+                    opacity: 0.92;
+                    mix-blend-mode: screen;
+                    -webkit-mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
+                    mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
                     animation: bob 3.4s ease-in-out infinite, holoJitter 0.18s linear infinite;
                   }}
                   .robot-glow {{
                     position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
                     width: 230px; height: 20px; border-radius:50%;
                     border:1px solid rgba(0,234,255,.45); box-shadow:0 0 16px rgba(0,234,255,.35), inset 0 0 8px rgba(0,234,255,.28);
+                  }}
+                  .robot-ring {{
+                    position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
+                    width: 300px; height: 34px; border-radius:50%;
+                    border: 1px solid rgba(0,234,255,.35);
+                    box-shadow: 0 0 14px rgba(0,234,255,.25);
+                    animation: ringPulse 2.6s ease-in-out infinite;
                   }}
                   .robot-title {{
                     position:absolute; left:14px; top:10px;
@@ -652,6 +688,10 @@ if file:
                     0%,100% {{ opacity: .35; }}
                     50% {{ opacity: .58; }}
                   }}
+                  @keyframes ringPulse {{
+                    0%,100% {{ transform: translateX(-50%) scale(0.98); opacity:.65; }}
+                    50% {{ transform: translateX(-50%) scale(1.03); opacity:1; }}
+                  }}
                 </style>
                 <div class="robot-panel">
                   <div class="robot-scan"></div>
@@ -659,20 +699,33 @@ if file:
                   <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
                   <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
                   <button class="robot-btn2" onclick="speakReport()">Speak: Report</button>
-                  <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
+                  <div class="robot-stage"><img class="robot-img" src="{robot_img_uri}" alt="HR Robot" /></div>
+                  <div class="robot-ring"></div>
                   <div class="robot-glow"></div>
                   <div class="robot-help">Tip: save image as C:\\Users\\User\\Desktop\\HR APP\\chopper.png</div>
                 </div>
                 <script>
+                  const VOICE_PROFILE = {json.dumps(st.session_state.robot_voice_profile)};
+                  function getVoiceConfig(profile) {{
+                    if (profile === "Chopper-like") {{
+                      return {{ rate: 0.98, pitch: 1.45, kw: /zira|samantha|female|en-us|google us english|michelle/i }};
+                    }}
+                    if (profile === "Professional Female") {{
+                      return {{ rate: 0.96, pitch: 1.08, kw: /zira|samantha|female|en-us|google us english|aria|jenny/i }};
+                    }}
+                    return {{ rate: 1.0, pitch: 1.0, kw: /en/i }};
+                  }}
                   function pickChopperVoice() {{
                     const vs = window.speechSynthesis.getVoices() || [];
-                    const preferred = vs.find(v => /zira|samantha|female|girl|en-us/i.test((v.name||'') + ' ' + (v.lang||'')));
+                    const cfg = getVoiceConfig(VOICE_PROFILE);
+                    const preferred = vs.find(v => cfg.kw.test((v.name||'') + ' ' + (v.lang||'')));
                     return preferred || vs.find(v => /en/i.test(v.lang||'')) || null;
                   }}
                   function speakGM() {{
                     try {{
                       const u = new SpeechSynthesisUtterance("Good morning. Welcome to the HR Executive Dashboard.");
-                      u.rate = 0.98; u.pitch = 1.45; u.volume = 1.0;
+                      const cfg = getVoiceConfig(VOICE_PROFILE);
+                      u.rate = cfg.rate; u.pitch = cfg.pitch; u.volume = 1.0;
                       const v = pickChopperVoice();
                       if (v) u.voice = v;
                       window.speechSynthesis.cancel();
@@ -683,7 +736,8 @@ if file:
                     try {{
                       const t = "Here is your HR report. You can ask me for summary, tenure bracket, top company, top branch, and top department.";
                       const u = new SpeechSynthesisUtterance(t);
-                      u.rate = 0.96; u.pitch = 1.35; u.volume = 1.0;
+                      const cfg = getVoiceConfig(VOICE_PROFILE);
+                      u.rate = cfg.rate; u.pitch = cfg.pitch; u.volume = 1.0;
                       const v = pickChopperVoice();
                       if (v) u.voice = v;
                       window.speechSynthesis.cancel();
@@ -917,12 +971,23 @@ if file:
                 if last_assistant:
                     if st.button("🔊 Speak last robot reply", key="speak_last_robot_reply"):
                         spoken = json.dumps(last_assistant)
+                        profile = json.dumps(st.session_state.get("robot_voice_profile", "Professional Female"))
                         components.html(
                             f"""
                             <script>
                               try {{
+                                const PROFILE = {profile};
+                                function cfg(p) {{
+                                  if (p === "Chopper-like") return {{rate:0.98,pitch:1.45,kw:/zira|samantha|female|en-us|google us english|michelle/i}};
+                                  if (p === "Professional Female") return {{rate:0.96,pitch:1.08,kw:/zira|samantha|female|en-us|google us english|aria|jenny/i}};
+                                  return {{rate:1.0,pitch:1.0,kw:/en/i}};
+                                }}
                                 const u = new SpeechSynthesisUtterance({spoken});
-                                u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+                                const c = cfg(PROFILE);
+                                u.rate = c.rate; u.pitch = c.pitch; u.volume = 1.0;
+                                const vs = window.speechSynthesis.getVoices() || [];
+                                const v = vs.find(v => c.kw.test((v.name||'') + ' ' + (v.lang||''))) || vs.find(v => /en/i.test(v.lang||''));
+                                if (v) u.voice = v;
                                 window.speechSynthesis.cancel();
                                 window.speechSynthesis.speak(u);
                               }} catch (e) {{}}
@@ -933,12 +998,23 @@ if file:
                         )
             if st.session_state.robot_pending_speech:
                 spoken_auto = json.dumps(st.session_state.robot_pending_speech)
+                profile_auto = json.dumps(st.session_state.get("robot_voice_profile", "Professional Female"))
                 components.html(
                     f"""
                     <script>
                       try {{
+                        const PROFILE = {profile_auto};
+                        function cfg(p) {{
+                          if (p === "Chopper-like") return {{rate:0.98,pitch:1.45,kw:/zira|samantha|female|en-us|google us english|michelle/i}};
+                          if (p === "Professional Female") return {{rate:0.96,pitch:1.08,kw:/zira|samantha|female|en-us|google us english|aria|jenny/i}};
+                          return {{rate:1.0,pitch:1.0,kw:/en/i}};
+                        }}
                         const u = new SpeechSynthesisUtterance({spoken_auto});
-                        u.rate = 0.98; u.pitch = 1.35; u.volume = 1.0;
+                        const c = cfg(PROFILE);
+                        u.rate = c.rate; u.pitch = c.pitch; u.volume = 1.0;
+                        const vs = window.speechSynthesis.getVoices() || [];
+                        const v = vs.find(v => c.kw.test((v.name||'') + ' ' + (v.lang||''))) || vs.find(v => /en/i.test(v.lang||''));
+                        if (v) u.voice = v;
                         window.speechSynthesis.cancel();
                         window.speechSynthesis.speak(u);
                       }} catch (e) {{}}
