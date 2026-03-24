@@ -636,15 +636,14 @@ if file:
                     animation: flicker 1.9s steps(2, end) infinite;
                   }}
                   .robot-stage {{
-                    position:absolute; left:0; right:0; bottom:16px;
-                    width:100%; height:220px;
+                    position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
+                    width:min(62%, 430px); height:222px;
                     display:flex; align-items:flex-end; justify-content:center;
-                    animation: camPush 9s ease-in-out infinite;
+                    animation: camPush 9s ease-in-out infinite, stageSway 6.2s ease-in-out infinite;
                   }}
                   .robot-img {{
-                    width: auto;
-                    max-width: 90%;
-                    height: 92%;
+                    width: 100%;
+                    height: 100%;
                     object-fit: contain;
                     object-position: center bottom;
                     filter: grayscale(0.05) saturate(1.08) brightness(1.08) contrast(1.08)
@@ -654,7 +653,7 @@ if file:
                     mix-blend-mode: screen;
                     -webkit-mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
                     mask-image: radial-gradient(ellipse at 50% 58%, black 56%, transparent 98%);
-                    animation: bob 3.4s ease-in-out infinite, holoJitter 0.18s linear infinite;
+                    animation: bob 3.1s ease-in-out infinite, holoJitter 0.18s linear infinite, breathe 4.6s ease-in-out infinite;
                   }}
                   .robot-glow {{
                     position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
@@ -719,6 +718,15 @@ if file:
                   @keyframes camPush {{
                     0%,100% {{ transform: scale(1); }}
                     50% {{ transform: scale(1.02); }}
+                  }}
+                  @keyframes stageSway {{
+                    0%,100% {{ margin-left: 0px; }}
+                    25% {{ margin-left: -6px; }}
+                    75% {{ margin-left: 6px; }}
+                  }}
+                  @keyframes breathe {{
+                    0%,100% {{ transform: scale(1) translateY(0px); }}
+                    50% {{ transform: scale(1.03) translateY(-2px); }}
                   }}
                   @keyframes ringPulse {{
                     0%,100% {{ transform: translateX(-50%) scale(0.98); opacity:.65; }}
