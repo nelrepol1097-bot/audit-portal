@@ -558,13 +558,16 @@ if file:
                 "data:image/svg+xml;utf8,"
                 "<svg xmlns='http://www.w3.org/2000/svg' width='700' height='320'>"
                 "<defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>"
-                "<stop offset='0%' stop-color='%2300eaff' stop-opacity='.22'/>"
+                "<stop offset='0%' stop-color='%2300eaff' stop-opacity='.28'/>"
                 "<stop offset='100%' stop-color='%23000' stop-opacity='0'/></linearGradient></defs>"
-                "<rect width='100%' height='100%' fill='%230b2232'/><rect width='100%' height='100%' fill='url(%23g)'/>"
+                "<rect width='100%' height='100%' fill='%23091b29'/><rect width='100%' height='100%' fill='url(%23g)'/>"
                 "<g fill='none' stroke='%2300eaff' stroke-width='4' transform='translate(350,160)'>"
                 "<circle cx='0' cy='-72' r='30'/><line x1='0' y1='-42' x2='0' y2='56'/>"
                 "<line x1='-60' y1='-6' x2='60' y2='-6'/><line x1='0' y1='56' x2='-40' y2='130'/>"
-                "<line x1='0' y1='56' x2='40' y2='130'/></g></svg>"
+                "<line x1='0' y1='56' x2='40' y2='130'/></g>"
+                "<text x='50%' y='91%' dominant-baseline='middle' text-anchor='middle' "
+                "font-family='Arial' font-size='18' fill='%239befff'>Upload chopper.png for custom robot</text>"
+                "</svg>"
             )
 
         with row_top[0]:
@@ -602,7 +605,7 @@ if file:
                   .robot-img {{
                     position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
                     width: min(97%, 560px); height:auto; max-height: 240px; object-fit: contain;
-                    filter: grayscale(0.1) saturate(1.2) hue-rotate(155deg) brightness(1.15) contrast(1.1)
+                    filter: grayscale(0.08) saturate(1.12) brightness(1.12) contrast(1.08)
                             drop-shadow(0 0 7px rgba(0,234,255,.9))
                             drop-shadow(0 0 20px rgba(0,234,255,.45));
                     opacity: 0.9;
