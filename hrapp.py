@@ -677,6 +677,34 @@ if file:
                 "60–120 mo",
                 "120+ mo",
             ]
+            # Slate / periwinkle → indigo (sample heatmap style: light cool tones → deep blue-violet)
+            TENURE_HEATMAP_COLORSCALE = [
+                [0.0, "#f1f3f9"],
+                [0.15, "#e4e8f4"],
+                [0.35, "#c9cfdf"],
+                [0.55, "#919bc9"],
+                [0.75, "#6f77b0"],
+                [1.0, "#4a4f8f"],
+            ]
+
+            def style_tenure_heatmap(fig, show_text=True):
+                """Match classic heatmap look: pale grid cells, indigo highs, optional count labels."""
+                if show_text:
+                    try:
+                        fig.update_traces(texttemplate="%{z:.0f}", textfont=dict(size=11, color="#1a1d2e"))
+                    except Exception:
+                        pass
+                try:
+                    fig.update_traces(xgap=2, ygap=2)
+                except Exception:
+                    pass
+                fig.update_traces(
+                    colorbar=dict(
+                        tickfont=dict(color="#c5eef9"),
+                        title=dict(text="Count", font=dict(color="#e0f7ff", size=12)),
+                    )
+                )
+                return fig
 
             if col_status and act_for_tenure.empty:
                 st.info("No active employees in the current selection — switch workforce to **All** or **Active**, or adjust filters.")
@@ -726,10 +754,11 @@ if file:
                                     color="Active headcount",
                                 ),
                                 aspect="auto",
-                                color_continuous_scale="Teal",
+                                color_continuous_scale=TENURE_HEATMAP_COLORSCALE,
                                 zmin=0,
                             )
                             fig_hm1.update_xaxes(side="bottom")
+                            style_tenure_heatmap(fig_hm1)
                             h1, h2 = st.columns(2)
                             h1.plotly_chart(
                                 chart_layout(
@@ -781,10 +810,11 @@ if file:
                                             color="Active headcount",
                                         ),
                                         aspect="auto",
-                                        color_continuous_scale="Purple",
+                                        color_continuous_scale=TENURE_HEATMAP_COLORSCALE,
                                         zmin=0,
                                     )
                                     fig_hm2.update_xaxes(side="bottom")
+                                    style_tenure_heatmap(fig_hm2)
                                     h2.plotly_chart(
                                         chart_layout(
                                             fig_hm2,
@@ -823,9 +853,10 @@ if file:
                             pv1,
                             labels=dict(x="Tenure (months, binned)", y="", color="Active headcount"),
                             aspect="auto",
-                            color_continuous_scale="Teal",
+                            color_continuous_scale=TENURE_HEATMAP_COLORSCALE,
                             zmin=0,
                         )
+                        style_tenure_heatmap(fig_hm)
                         st.plotly_chart(
                             chart_layout(fig_hm, "Heatmap — active employees by tenure month band (no bracket column)"),
                             use_container_width=True,
@@ -848,9 +879,10 @@ if file:
                             pv_b,
                             labels=dict(x="Tenure bracket", y="", color="Active headcount"),
                             aspect="auto",
-                            color_continuous_scale="Purple",
+                            color_continuous_scale=TENURE_HEATMAP_COLORSCALE,
                             zmin=0,
                         )
+                        style_tenure_heatmap(fig_hb)
                         st.plotly_chart(
                             chart_layout(fig_hb, "Heatmap — active employees by tenure bracket (no months column)"),
                             use_container_width=True,
