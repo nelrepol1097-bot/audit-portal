@@ -8,9 +8,9 @@ from sklearn.linear_model import LinearRegression
 import time
 import re
 import base64
+import json
 from io import BytesIO
 from datetime import datetime
-from pathlib import Path
 import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
@@ -453,6 +453,12 @@ if file:
             else:
                 workforce_filter = "All"
                 st.caption("Add a **CURRENT STATUS** column in HR DATABASE to enable Active / Inactive filtering.")
+            robot_upload = st.file_uploader(
+                "Robot image (optional)",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="main_robot_img_upload",
+                help="Upload a robot image if you want a custom assistant look.",
+            )
         with row_top[1]:
             if col_date_filter and "_HR_FILTER_DATE" in df.columns:
                 vd_all = df["_HR_FILTER_DATE"].dropna()
@@ -516,102 +522,97 @@ if file:
                     )
             else:
                 st.caption("Add a **date** column (e.g. *Date Hired*, *Joining Date*) to enable the calendar filter.")
-
         robot_img_uri = ""
-        robot_candidates = [
-            r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-a5042e8b-4583-4c1a-9ec1-b41d14970dc0.png",
-            r"C:\Users\User\.cursor\projects\C-Users-User-AppData-Local-Temp-989fffe9-f0f3-435d-9641-116288540b94\assets\c__Users_User_AppData_Roaming_Cursor_User_workspaceStorage_1773732824934_images_image-29ba6671-dd23-49c9-b4c2-e43d27d32d10.png",
-        ]
-        for rp in robot_candidates:
-            p = Path(rp)
-            if p.exists():
-                try:
-                    robot_img_uri = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
-                    break
-                except Exception:
-                    robot_img_uri = ""
-
+        if robot_upload is not None:
+            try:
+                robot_img_uri = (
+                    "data:image/png;base64,"
+                    + base64.b64encode(robot_upload.getvalue()).decode("ascii")
+                )
+            except Exception:
+                robot_img_uri = ""
         if not robot_img_uri:
             robot_img_uri = (
                 "data:image/svg+xml;utf8,"
-                "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='320'>"
-                "<rect width='100%' height='100%' fill='%23091f2d'/>"
-                "<text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' "
-                "font-family='Arial' font-size='26' fill='%2300eaff'>ROBOT IMAGE NOT FOUND</text></svg>"
+                "<svg xmlns='http://www.w3.org/2000/svg' width='700' height='320'>"
+                "<defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>"
+                "<stop offset='0%' stop-color='%2300eaff' stop-opacity='.22'/>"
+                "<stop offset='100%' stop-color='%23000' stop-opacity='0'/></linearGradient></defs>"
+                "<rect width='100%' height='100%' fill='%230b2232'/><rect width='100%' height='100%' fill='url(%23g)'/>"
+                "<g fill='none' stroke='%2300eaff' stroke-width='4' transform='translate(350,160)'>"
+                "<circle cx='0' cy='-72' r='30'/><line x1='0' y1='-42' x2='0' y2='56'/>"
+                "<line x1='-60' y1='-6' x2='60' y2='-6'/><line x1='0' y1='56' x2='-40' y2='130'/>"
+                "<line x1='0' y1='56' x2='40' y2='130'/></g></svg>"
             )
 
-        components.html(
-            f"""
-            <style>
-              .robot-panel {{
-                position: relative; height: 280px; margin: 0.25rem 0 0.7rem 0;
-                border-radius: 12px; overflow: hidden;
-                border: 1px solid rgba(0,234,255,.36);
-                background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
-                box-shadow: inset 0 0 28px rgba(0,234,255,.14), 0 0 16px rgba(0,234,255,.16);
-              }}
-              .robot-scan {{
-                position:absolute; inset:0;
-                background: repeating-linear-gradient(to bottom, rgba(0,234,255,.08) 0 1px, transparent 1px 7px);
-                pointer-events:none; mix-blend-mode:screen;
-              }}
-              .robot-img {{
-                position:absolute; left:50%; bottom:8px; transform:translateX(-50%);
-                width: min(95%, 520px); height:auto; max-height: 255px; object-fit: contain;
-                filter: drop-shadow(0 0 16px rgba(0,234,255,.45));
-                animation: bob 3.4s ease-in-out infinite;
-              }}
-              .robot-glow {{
-                position:absolute; left:50%; bottom:6px; transform:translateX(-50%);
-                width: 230px; height: 24px; border-radius:50%;
-                border:1px solid rgba(0,234,255,.45); box-shadow:0 0 16px rgba(0,234,255,.35), inset 0 0 8px rgba(0,234,255,.28);
-              }}
-              .robot-title {{
-                position:absolute; left:14px; top:12px;
-                font:700 13px Orbitron,Arial,sans-serif; letter-spacing:.08em;
-                color:#00eaff; text-shadow:0 0 12px rgba(0,234,255,.8);
-              }}
-              .robot-btn {{
-                position:absolute; right:12px; top:10px;
-                background:rgba(0,234,255,.12); color:#bff8ff; border:1px solid rgba(0,234,255,.52);
-                border-radius:8px; padding:5px 10px; cursor:pointer; font:600 12px Rajdhani,Arial,sans-serif;
-              }}
-              .robot-btn:hover {{ background: rgba(0,234,255,.2); color:#fff; }}
-              .robot-note {{
-                position:absolute; left:14px; bottom:10px; color:#9fefff; font:600 12px Rajdhani,Arial,sans-serif;
-              }}
-              @keyframes bob {{
-                0%,100% {{ transform: translateX(-50%) translateY(0px); }}
-                50% {{ transform: translateX(-50%) translateY(-6px); }}
-              }}
-            </style>
-            <div class="robot-panel">
-              <div class="robot-scan"></div>
-              <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
-              <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
-              <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
-              <div class="robot-glow"></div>
-              <div class="robot-note">Department focus: HR</div>
-            </div>
-            <script>
-              function speakGM() {{
-                try {{
-                  const u = new SpeechSynthesisUtterance("Good morning. Welcome to the HR Executive Dashboard.");
-                  u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-                  const vs = window.speechSynthesis.getVoices();
-                  if (vs && vs.length) {{
-                    const en = vs.find(v => /en/i.test(v.lang));
-                    if (en) u.voice = en;
+        with row_top[0]:
+            components.html(
+                f"""
+                <style>
+                  .robot-panel {{
+                    position: relative; height: 225px; margin: 0.25rem 0 0.25rem 0;
+                    border-radius: 10px; overflow: hidden;
+                    border: 1px solid rgba(0,234,255,.36);
+                    background: radial-gradient(circle at 50% 20%, rgba(0,234,255,.15), rgba(6,16,28,.95) 60%);
+                    box-shadow: inset 0 0 28px rgba(0,234,255,.14), 0 0 16px rgba(0,234,255,.16);
                   }}
-                  window.speechSynthesis.cancel();
-                  window.speechSynthesis.speak(u);
-                }} catch (e) {{}}
-              }}
-            </script>
-            """,
-            height=305,
-            scrolling=False,
-        )
+                  .robot-scan {{
+                    position:absolute; inset:0;
+                    background: repeating-linear-gradient(to bottom, rgba(0,234,255,.08) 0 1px, transparent 1px 7px);
+                    pointer-events:none; mix-blend-mode:screen;
+                  }}
+                  .robot-img {{
+                    position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
+                    width: min(96%, 500px); height:auto; max-height: 200px; object-fit: contain;
+                    filter: drop-shadow(0 0 16px rgba(0,234,255,.45));
+                    animation: bob 3.4s ease-in-out infinite;
+                  }}
+                  .robot-glow {{
+                    position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
+                    width: 230px; height: 20px; border-radius:50%;
+                    border:1px solid rgba(0,234,255,.45); box-shadow:0 0 16px rgba(0,234,255,.35), inset 0 0 8px rgba(0,234,255,.28);
+                  }}
+                  .robot-title {{
+                    position:absolute; left:14px; top:10px;
+                    font:700 12px Orbitron,Arial,sans-serif; letter-spacing:.08em;
+                    color:#00eaff; text-shadow:0 0 12px rgba(0,234,255,.8);
+                  }}
+                  .robot-btn {{
+                    position:absolute; right:10px; top:8px;
+                    background:rgba(0,234,255,.12); color:#bff8ff; border:1px solid rgba(0,234,255,.52);
+                    border-radius:8px; padding:4px 9px; cursor:pointer; font:600 11px Rajdhani,Arial,sans-serif;
+                  }}
+                  @keyframes bob {{
+                    0%,100% {{ transform: translateX(-50%) translateY(0px); }}
+                    50% {{ transform: translateX(-50%) translateY(-5px); }}
+                  }}
+                </style>
+                <div class="robot-panel">
+                  <div class="robot-scan"></div>
+                  <div class="robot-title">HR HOLOGRAPHIC ASSISTANT</div>
+                  <button class="robot-btn" onclick="speakGM()">Speak: Good Morning</button>
+                  <img class="robot-img" src="{robot_img_uri}" alt="HR Robot" />
+                  <div class="robot-glow"></div>
+                </div>
+                <script>
+                  function speakGM() {{
+                    try {{
+                      const u = new SpeechSynthesisUtterance("Good morning. Welcome to the HR Executive Dashboard.");
+                      u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+                      const vs = window.speechSynthesis.getVoices();
+                      if (vs && vs.length) {{
+                        const en = vs.find(v => /en/i.test(v.lang));
+                        if (en) u.voice = en;
+                      }}
+                      window.speechSynthesis.cancel();
+                      window.speechSynthesis.speak(u);
+                    }} catch (e) {{}}
+                  }}
+                </script>
+                """,
+                height=245,
+                scrolling=False,
+            )
 
         search = st.text_input("Search Employee")
         filtered_df = df.copy()
@@ -694,6 +695,103 @@ if file:
                 f"Filtered to **{workforce_filter}** employees — **{len(filtered_df):,}** record(s). "
                 "Charts below match this cohort."
             )
+
+        if "robot_chat" not in st.session_state:
+            st.session_state.robot_chat = [
+                {
+                    "role": "assistant",
+                    "content": "Hello, I am your HR robot assistant. Ask me for a summary, tenure brackets, top company, branch, department, or say 'show data'.",
+                }
+            ]
+
+        def robot_answer(query, fdf):
+            q = str(query).strip().lower()
+            if not q:
+                return "Please type a question so I can help."
+            if "summary" in q or "report" in q or "dashboard" in q:
+                return (
+                    f"Current filtered report: total {len(fdf):,} employee records, "
+                    f"active {active:,}, attrition headcount {attrition_n:,}."
+                )
+            if "tenure" in q and ("bracket" in q or "band" in q):
+                if "_TENURE_BRACKET_AUTO" in fdf.columns:
+                    s = fdf["_TENURE_BRACKET_AUTO"].astype(str).str.strip()
+                    s = s[s != ""]
+                    if s.empty:
+                        return "I cannot find tenure bracket values in the current filtered data."
+                    top = s.value_counts().head(5)
+                    txt = "; ".join([f"{k}: {int(v)}" for k, v in top.items()])
+                    return f"Top tenure brackets now are {txt}."
+                return "I cannot compute tenure brackets because TENURE (months) is missing."
+            if ("top" in q or "highest" in q) and "company" in q and col_company:
+                vc = fdf[col_company].astype(str).str.strip().value_counts()
+                if vc.empty:
+                    return "No company values found in this filtered data."
+                name = str(vc.index[0])
+                val = int(vc.iloc[0])
+                return f"Top company in the current filter is {name} with {val} employees."
+            if ("top" in q or "highest" in q) and "branch" in q and col_branch:
+                vc = fdf[col_branch].astype(str).str.strip().value_counts()
+                if vc.empty:
+                    return "No branch values found in this filtered data."
+                name = str(vc.index[0])
+                val = int(vc.iloc[0])
+                return f"Top branch in the current filter is {name} with {val} employees."
+            if ("top" in q or "highest" in q) and ("department" in q or "dept" in q) and col_dept:
+                vc = fdf[col_dept].astype(str).str.strip().value_counts()
+                if vc.empty:
+                    return "No department values found in this filtered data."
+                name = str(vc.index[0])
+                val = int(vc.iloc[0])
+                return f"Top department in the current filter is {name} with {val} employees."
+            if "show data" in q or "table" in q or "details" in q:
+                return "show_data"
+            return (
+                "I can help with summary, tenure brackets, top company/branch/department, or show data. "
+                "Try: 'Give me summary report' or 'Top tenure bracket'."
+            )
+
+        with st.expander("🤖 Talk to HR Robot", expanded=False):
+            for msg in st.session_state.robot_chat[-8:]:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            user_q = st.chat_input("Ask the robot about your filtered HR data...", key="hr_robot_chat_input")
+            if user_q:
+                st.session_state.robot_chat.append({"role": "user", "content": user_q})
+                ans = robot_answer(user_q, filtered_df)
+                st.session_state.robot_chat.append(
+                    {
+                        "role": "assistant",
+                        "content": ans if ans != "show_data" else "Showing first 50 rows of your current filtered data below.",
+                    }
+                )
+                st.rerun()
+
+            if st.session_state.robot_chat:
+                last_assistant = next(
+                    (m["content"] for m in reversed(st.session_state.robot_chat) if m["role"] == "assistant"),
+                    "",
+                )
+                if last_assistant:
+                    if st.button("🔊 Speak last robot reply", key="speak_last_robot_reply"):
+                        spoken = json.dumps(last_assistant)
+                        components.html(
+                            f"""
+                            <script>
+                              try {{
+                                const u = new SpeechSynthesisUtterance({spoken});
+                                u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+                                window.speechSynthesis.cancel();
+                                window.speechSynthesis.speak(u);
+                              }} catch (e) {{}}
+                            </script>
+                            """,
+                            height=0,
+                            scrolling=False,
+                        )
+            if st.session_state.robot_chat and st.session_state.robot_chat[-1]["content"] == "Showing first 50 rows of your current filtered data below.":
+                st.dataframe(filtered_df.head(50), use_container_width=True)
 
         st.markdown('<div class="glass">', unsafe_allow_html=True)
 
