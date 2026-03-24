@@ -461,10 +461,10 @@ if file:
                 help="Upload a robot image if you want a custom assistant look.",
             )
             if "robot_voice_profile" not in st.session_state:
-                st.session_state.robot_voice_profile = "Professional Female"
+                st.session_state.robot_voice_profile = "Executive Female (Natural)"
             st.selectbox(
                 "Robot voice profile",
-                ["Professional Female", "Chopper-like", "Neutral"],
+                ["Executive Female (Natural)", "Professional Female", "Chopper-like", "Neutral"],
                 key="robot_voice_profile",
                 help="Changes the speaking style for robot panel and chat replies.",
             )
@@ -656,7 +656,7 @@ if file:
                   .robot-inner {{
                     width:100%; height:100%;
                     display:flex; align-items:center; justify-content:center;
-                    animation: camPush 9s ease-in-out infinite, stageSway 6.2s ease-in-out infinite;
+                    animation: stageFloat 3.8s ease-in-out infinite;
                     z-index: 1;
                   }}
                   .robot-img {{
@@ -671,7 +671,7 @@ if file:
                     mix-blend-mode: screen;
                     -webkit-mask-image: radial-gradient(ellipse at 50% 54%, black 45%, rgba(0,0,0,.9) 56%, rgba(0,0,0,.55) 68%, transparent 84%);
                     mask-image: radial-gradient(ellipse at 50% 54%, black 45%, rgba(0,0,0,.9) 56%, rgba(0,0,0,.55) 68%, transparent 84%);
-                    animation: bob 3.1s ease-in-out infinite, holoJitter 0.18s linear infinite, breathe 4.6s ease-in-out infinite;
+                    animation: imgBob 3.0s ease-in-out infinite;
                   }}
                   .robot-glow {{
                     position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
@@ -711,18 +711,13 @@ if file:
                     background:rgba(168,85,247,.15); color:#f2d8ff; border:1px solid rgba(168,85,247,.6);
                     border-radius:8px; padding:4px 9px; cursor:pointer; font:600 11px Rajdhani,Arial,sans-serif;
                   }}
-                  @keyframes bob {{
-                    0%,100% {{ transform: translateX(-50%) translateY(0px); }}
-                    50% {{ transform: translateX(-50%) translateY(-5px); }}
+                  @keyframes imgBob {{
+                    0%,100% {{ transform: translateY(0px) scale(1.00); opacity: 0.86; }}
+                    50% {{ transform: translateY(-9px) scale(1.03); opacity: 0.96; }}
                   }}
                   @keyframes holoPulse {{
                     0%,100% {{ opacity: .35; transform: scale(.98); }}
                     50% {{ opacity: .85; transform: scale(1.04); }}
-                  }}
-                  @keyframes holoJitter {{
-                    0% {{ transform: translateX(-50%) translateY(0px); }}
-                    50% {{ transform: translateX(calc(-50% + 0.6px)) translateY(0px); }}
-                    100% {{ transform: translateX(calc(-50% - 0.6px)) translateY(0px); }}
                   }}
                   @keyframes flicker {{
                     0%,100% {{ opacity: .35; }}
@@ -733,18 +728,11 @@ if file:
                     50% {{ transform: translateY(-6px); opacity:.7; }}
                     100% {{ transform: translateY(6px); opacity:.35; }}
                   }}
-                  @keyframes camPush {{
-                    0%,100% {{ transform: scale(1); }}
-                    50% {{ transform: scale(1.02); }}
-                  }}
-                  @keyframes stageSway {{
-                    0%,100% {{ transform: translateX(0px); }}
-                    25% {{ transform: translateX(-4px); }}
-                    75% {{ transform: translateX(4px); }}
-                  }}
-                  @keyframes breathe {{
-                    0%,100% {{ transform: scale(1) translateY(0px); }}
-                    50% {{ transform: scale(1.03) translateY(-2px); }}
+                  @keyframes stageFloat {{
+                    0%,100% {{ transform: translateY(0px); }}
+                    25% {{ transform: translateY(-4px); }}
+                    50% {{ transform: translateY(-8px); }}
+                    75% {{ transform: translateY(-3px); }}
                   }}
                   @keyframes ringPulse {{
                     0%,100% {{ transform: translateX(-50%) scale(0.98); opacity:.65; }}
@@ -771,6 +759,9 @@ if file:
                 <script>
                   const VOICE_PROFILE = {json.dumps(st.session_state.robot_voice_profile)};
                   function getVoiceConfig(profile) {{
+                    if (profile === "Executive Female (Natural)") {{
+                      return {{ rate: 0.95, pitch: 1.02, kw: /microsoft aria|aria online|jenny|sara|samantha|zira|female|en-us|natural/i }};
+                    }}
                     if (profile === "Chopper-like") {{
                       return {{ rate: 0.98, pitch: 1.45, kw: /zira|samantha|female|en-us|google us english|michelle/i }};
                     }}
@@ -782,8 +773,20 @@ if file:
                   function pickChopperVoice() {{
                     const vs = window.speechSynthesis.getVoices() || [];
                     const cfg = getVoiceConfig(VOICE_PROFILE);
-                    const preferred = vs.find(v => cfg.kw.test((v.name||'') + ' ' + (v.lang||'')));
-                    return preferred || vs.find(v => /en/i.test(v.lang||'')) || null;
+                    if (!vs.length) return null;
+                    const rankVoice = (v) => {{
+                      const txt = ((v.name || "") + " " + (v.lang || "")).toLowerCase();
+                      let score = 0;
+                      if (cfg.kw.test(txt)) score += 120;
+                      if (/natural|online/.test(txt)) score += 45;
+                      if (/aria|jenny|zira|samantha|female/.test(txt)) score += 30;
+                      if (/en-us/.test(txt)) score += 18;
+                      if (/en/.test(txt)) score += 6;
+                      return score;
+                    }};
+                    const ranked = [...vs].sort((a, b) => rankVoice(b) - rankVoice(a));
+                    const best = ranked[0];
+                    return (best && rankVoice(best) > 0) ? best : (vs.find(v => /en/i.test(v.lang||'')) || null);
                   }}
                   function speakGM() {{
                     try {{
@@ -917,10 +920,26 @@ if file:
             if not q:
                 return "Please type a question so I can help."
             if "summary" in q or "report" in q or "dashboard" in q:
+                top_company_txt = ""
+                if col_company and not fdf.empty:
+                    vc_comp = fdf[col_company].astype(str).str.strip().replace({"nan": ""})
+                    vc_comp = vc_comp[vc_comp != ""].value_counts()
+                    if not vc_comp.empty:
+                        top_company_txt = f" Top company: {vc_comp.index[0]} ({int(vc_comp.iloc[0])})."
+                top_dept_txt = ""
+                if col_dept and not fdf.empty:
+                    vc_dept = fdf[col_dept].astype(str).str.strip().replace({"nan": ""})
+                    vc_dept = vc_dept[vc_dept != ""].value_counts()
+                    if not vc_dept.empty:
+                        top_dept_txt = f" Top department: {vc_dept.index[0]} ({int(vc_dept.iloc[0])})."
                 return (
                     f"Current filtered report: total {len(fdf):,} employee records, "
                     f"active {active:,}, attrition headcount {attrition_n:,}."
+                    f"{top_company_txt}{top_dept_txt} "
+                    "Ask: 'show employee details' to open the table."
                 )
+            if "employee details" in q or "employee detail" in q or "show employees" in q:
+                return "show_data"
             if "tenure" in q and ("bracket" in q or "band" in q):
                 if "_TENURE_BRACKET_AUTO" in fdf.columns:
                     s = fdf["_TENURE_BRACKET_AUTO"].astype(str).str.strip()
@@ -952,11 +971,11 @@ if file:
                 name = str(vc.index[0])
                 val = int(vc.iloc[0])
                 return f"Top department in the current filter is {name} with {val} employees."
-            if "show data" in q or "table" in q or "details" in q:
+            if "show data" in q or "table" in q:
                 return "show_data"
             return (
-                "I can help with summary, tenure brackets, top company/branch/department, or show data. "
-                "Try: 'Give me summary report' or 'Top tenure bracket'."
+                "I can help with summary report, employee details, tenure brackets, top company/branch/department, or show data. "
+                "Try: 'Give me summary report', 'show employee details', or 'Top tenure bracket'."
             )
 
         def robot_apply_command(query_text):
@@ -1035,13 +1054,14 @@ if file:
                 if last_assistant:
                     if st.button("🔊 Speak last robot reply", key="speak_last_robot_reply"):
                         spoken = json.dumps(last_assistant)
-                        profile = json.dumps(st.session_state.get("robot_voice_profile", "Professional Female"))
+                        profile = json.dumps(st.session_state.get("robot_voice_profile", "Executive Female (Natural)"))
                         components.html(
                             f"""
                             <script>
                               try {{
                                 const PROFILE = {profile};
                                 function cfg(p) {{
+                                  if (p === "Executive Female (Natural)") return {{rate:0.95,pitch:1.02,kw:/microsoft aria|aria online|jenny|sara|samantha|zira|female|en-us|natural/i}};
                                   if (p === "Chopper-like") return {{rate:0.98,pitch:1.45,kw:/zira|samantha|female|en-us|google us english|michelle/i}};
                                   if (p === "Professional Female") return {{rate:0.96,pitch:1.08,kw:/zira|samantha|female|en-us|google us english|aria|jenny/i}};
                                   return {{rate:1.0,pitch:1.0,kw:/en/i}};
@@ -1062,13 +1082,14 @@ if file:
                         )
             if st.session_state.robot_pending_speech:
                 spoken_auto = json.dumps(st.session_state.robot_pending_speech)
-                profile_auto = json.dumps(st.session_state.get("robot_voice_profile", "Professional Female"))
+                profile_auto = json.dumps(st.session_state.get("robot_voice_profile", "Executive Female (Natural)"))
                 components.html(
                     f"""
                     <script>
                       try {{
                         const PROFILE = {profile_auto};
                         function cfg(p) {{
+                          if (p === "Executive Female (Natural)") return {{rate:0.95,pitch:1.02,kw:/microsoft aria|aria online|jenny|sara|samantha|zira|female|en-us|natural/i}};
                           if (p === "Chopper-like") return {{rate:0.98,pitch:1.45,kw:/zira|samantha|female|en-us|google us english|michelle/i}};
                           if (p === "Professional Female") return {{rate:0.96,pitch:1.08,kw:/zira|samantha|female|en-us|google us english|aria|jenny/i}};
                           return {{rate:1.0,pitch:1.0,kw:/en/i}};
