@@ -357,6 +357,24 @@ if file:
     if col_tenure:
         df["TENURE_NUM"] = df[col_tenure].apply(tenure_months_numeric)
 
+    if "TENURE_NUM" in df.columns:
+        _tb_edges = [0, 12, 24, 36, 48, 60, 120, 100_000]
+        _tb_labels = [
+            "0–12 mo",
+            "12–24 mo",
+            "24–36 mo",
+            "36–48 mo",
+            "48–60 mo",
+            "60–120 mo",
+            "120+ mo",
+        ]
+        df["_TENURE_BRACKET_AUTO"] = pd.cut(
+            df["TENURE_NUM"],
+            bins=_tb_edges,
+            labels=_tb_labels,
+            include_lowest=True,
+        ).astype(str).replace({"nan": ""})
+
     # =========================================================
     # ML
     # =========================================================
@@ -414,6 +432,8 @@ if file:
         st.title("🤖 HR EXECUTIVE DASHBOARD")
 
         date_sel = None
+        date_mode = "Range"
+        date_filter_info = ""
         include_blank_dates = False
 
         row_top = st.columns([1.35, 1.25])
@@ -443,6 +463,13 @@ if file:
                         f'<span style="color:#e0f7ff;">{col_date_filter}</span></p>',
                         unsafe_allow_html=True,
                     )
+                    date_mode = st.radio(
+                        "Date filter mode",
+                        ["Range", "Year", "Year + Month", "Exact Day"],
+                        horizontal=True,
+                        index=0,
+                        key="main_dashboard_date_mode",
+                    )
                     date_sel = st.date_input(
                         "Filter by date (range)",
                         value=(d_lo, d_hi),
@@ -451,6 +478,32 @@ if file:
                         key="main_dashboard_date_range",
                         help="Choose **start** and **end** on the calendar (year, month, day). "
                         "Pick the same day twice for a single day. Applies to the date column shown above.",
+                    )
+                    years_avail = sorted(vd_all.dt.year.unique().tolist())
+                    y_pick = st.selectbox(
+                        "Year",
+                        years_avail,
+                        index=len(years_avail) - 1,
+                        key="main_dashboard_date_year_pick",
+                    )
+                    m_pick = st.selectbox(
+                        "Month",
+                        list(range(1, 13)),
+                        index=0,
+                        format_func=lambda m: pd.Timestamp(2000, m, 1).strftime("%B"),
+                        key="main_dashboard_date_month_pick",
+                    )
+                    vd_y = vd_all[vd_all.dt.year == int(y_pick)]
+                    days_avail = (
+                        sorted(vd_y[vd_y.dt.month == int(m_pick)].dt.day.unique().tolist())
+                        if not vd_y.empty
+                        else []
+                    )
+                    d_pick = st.selectbox(
+                        "Day",
+                        days_avail if days_avail else [1],
+                        index=0,
+                        key="main_dashboard_date_day_pick",
                     )
                     include_blank_dates = st.checkbox(
                         "Include rows with missing dates",
@@ -479,14 +532,29 @@ if file:
         if col_date_filter and "_HR_FILTER_DATE" in filtered_df.columns and date_sel is not None:
             vd = filtered_df["_HR_FILTER_DATE"].dropna()
             if not vd.empty:
-                if isinstance(date_sel, tuple) and len(date_sel) == 2:
-                    d_start, d_end = date_sel[0], date_sel[1]
-                else:
-                    d_start = d_end = date_sel
-                ts_a = pd.Timestamp(d_start).normalize()
-                ts_b = pd.Timestamp(d_end).normalize()
                 dser = filtered_df["_HR_FILTER_DATE"]
-                in_range = (dser >= ts_a) & (dser <= ts_b)
+                if date_mode == "Year":
+                    in_range = dser.dt.year == int(y_pick)
+                    date_filter_info = f"Year={int(y_pick)}"
+                elif date_mode == "Year + Month":
+                    in_range = (dser.dt.year == int(y_pick)) & (dser.dt.month == int(m_pick))
+                    date_filter_info = f"Year={int(y_pick)}, Month={int(m_pick):02d}"
+                elif date_mode == "Exact Day":
+                    in_range = (
+                        (dser.dt.year == int(y_pick))
+                        & (dser.dt.month == int(m_pick))
+                        & (dser.dt.day == int(d_pick))
+                    )
+                    date_filter_info = f"Date={int(y_pick)}-{int(m_pick):02d}-{int(d_pick):02d}"
+                else:
+                    if isinstance(date_sel, tuple) and len(date_sel) == 2:
+                        d_start, d_end = date_sel[0], date_sel[1]
+                    else:
+                        d_start = d_end = date_sel
+                    ts_a = pd.Timestamp(d_start).normalize()
+                    ts_b = pd.Timestamp(d_end).normalize()
+                    in_range = (dser >= ts_a) & (dser <= ts_b)
+                    date_filter_info = f"Range={ts_a.date()} to {ts_b.date()}"
                 if include_blank_dates:
                     filtered_df = filtered_df.loc[in_range | dser.isna()].copy()
                 else:
@@ -714,14 +782,29 @@ if file:
                     and "TENURE_NUM" in act_for_tenure.columns
                     and act_for_tenure["TENURE_NUM"].notna().any()
                 )
-                has_bracket = False
-                if col_tenure_bracket:
-                    br = act_for_tenure[col_tenure_bracket]
-                    has_bracket = br.notna().any() and br.astype(str).str.strip().ne("").any()
+                # Resolve bracket source:
+                # If tenure months exist, force auto bracket from months to avoid date-like bracket columns.
+                bracket_source_col = None
+                if has_months and "_TENURE_BRACKET_AUTO" in act_for_tenure.columns:
+                    auto_txt = act_for_tenure["_TENURE_BRACKET_AUTO"].astype(str).str.strip()
+                    if auto_txt.ne("").any():
+                        bracket_source_col = "_TENURE_BRACKET_AUTO"
+                        if col_tenure_bracket:
+                            st.caption(
+                                f"Using auto tenure buckets from **{col_tenure}** to keep bracket labels clean "
+                                f"(instead of **{col_tenure_bracket}**)."
+                            )
+                if bracket_source_col is None and col_tenure_bracket:
+                    br_raw = act_for_tenure[col_tenure_bracket]
+                    br_txt = br_raw.astype(str).str.strip()
+                    has_vals = br_raw.notna().any() and br_txt.ne("").any()
+                    if has_vals:
+                        bracket_source_col = col_tenure_bracket
+                has_bracket = bracket_source_col is not None
 
                 if has_months and has_bracket:
                     hm_df = act_for_tenure.dropna(subset=["TENURE_NUM"]).copy()
-                    hm_df["_BR"] = hm_df[col_tenure_bracket].astype(str).str.strip()
+                    hm_df["_BR"] = hm_df[bracket_source_col].astype(str).str.strip()
                     hm_df = hm_df[hm_df["_BR"].str.len() > 0]
                     if hm_df.empty:
                         st.caption("No rows with both tenure months and bracket for heatmaps.")
@@ -865,7 +948,7 @@ if file:
                         st.caption(f"**{col_tenure_bracket}** has no values for active employees in this selection.")
                 elif has_bracket:
                     vc_br = (
-                        act_for_tenure[col_tenure_bracket]
+                        act_for_tenure[bracket_source_col]
                         .dropna()
                         .astype(str)
                         .str.strip()
@@ -905,8 +988,8 @@ if file:
             if col_status and act_export.empty:
                 st.warning("No active employees in the current selection — adjust filters or switch workforce to **All** / **Active**.")
             else:
-                ds_part = ""
-                if col_date_filter and date_sel is not None:
+                ds_part = date_filter_info
+                if col_date_filter and date_sel is not None and not ds_part:
                     if isinstance(date_sel, tuple) and len(date_sel) == 2:
                         ds_part = f"{date_sel[0]} → {date_sel[1]}"
                     else:
@@ -950,8 +1033,16 @@ if file:
                         df_info_export.to_excel(writer, sheet_name="Export_info", index=False)
                         detail_export.to_excel(writer, sheet_name="Employee_detail", index=False)
 
-                        if col_tenure_bracket:
-                            br_raw = act_export[col_tenure_bracket].astype(str).str.strip()
+                        export_br_col = None
+                        if "bracket_source_col" in locals() and bracket_source_col:
+                            export_br_col = bracket_source_col
+                        elif col_tenure_bracket:
+                            export_br_col = col_tenure_bracket
+                        elif "_TENURE_BRACKET_AUTO" in act_export.columns:
+                            export_br_col = "_TENURE_BRACKET_AUTO"
+
+                        if export_br_col:
+                            br_raw = act_export[export_br_col].astype(str).str.strip()
                             br_raw = br_raw.replace({"nan": "", "None": ""})
                             valid_b = br_raw[br_raw.str.len() > 0]
                             if not valid_b.empty:
@@ -974,12 +1065,12 @@ if file:
                                 ).to_excel(writer, sheet_name="Bracket_counts", index=False)
 
                         if (
-                            col_tenure_bracket
+                            export_br_col
                             and "TENURE_NUM" in act_export.columns
                             and act_export["TENURE_NUM"].notna().any()
                         ):
                             gx = act_export.dropna(subset=["TENURE_NUM"]).copy()
-                            gx["_BR"] = gx[col_tenure_bracket].astype(str).str.strip()
+                            gx["_BR"] = gx[export_br_col].astype(str).str.strip()
                             gx["_BR"] = gx["_BR"].replace({"nan": "", "None": ""})
                             gx = gx[gx["_BR"].str.len() > 0]
                             if not gx.empty:
