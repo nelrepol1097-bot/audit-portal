@@ -2931,19 +2931,23 @@ if file:
                             st.caption(
                                 "Employee is selected from HR DATABASE (no manual typing), so input mistakes on name are prevented."
                             )
+                            st.info(
+                                "Input rule: Fill only **Weekly Target**, **Actual**, and **Week 1-4 Actual Achievement**. "
+                                "**Score %**, **TOTAL ACHIEVEMENT FTM %**, and **Weighted Achievement %** are auto-computed."
+                            )
 
                             scorecard_rows = [
-                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Target": 10.0},
-                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Target": 10.0},
-                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Target": 5.0},
-                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Target": 4.0},
-                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Target": 7.0},
-                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Target": 0.0},
-                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Target": 0.0},
+                                {"Category": "Production", "Metric": "UDI Target (client visits)", "Weight %": 40.0, "Weekly Target": 10.0, "Actual": 0.0},
+                                {"Category": "Activity", "Metric": "Contact Rate", "Weight %": 12.0, "Weekly Target": 10.0, "Actual": 0.0},
+                                {"Category": "Activity", "Metric": "Flyering", "Weight %": 6.0, "Weekly Target": 5.0, "Actual": 0.0},
+                                {"Category": "Pipeline", "Metric": "Borrower Reactivation (Renewal)", "Weight %": 7.5, "Weekly Target": 4.0, "Actual": 0.0},
+                                {"Category": "Pipeline", "Metric": "Active Pipeline", "Weight %": 7.5, "Weekly Target": 7.0, "Actual": 0.0},
+                                {"Category": "Compliance", "Metric": "Attendance", "Weight %": 7.5, "Weekly Target": 0.0, "Actual": 0.0},
+                                {"Category": "Compliance", "Metric": "Zero Complaint", "Weight %": 7.5, "Weekly Target": 0.0, "Actual": 0.0},
                             ]
                             card_df = pd.DataFrame(scorecard_rows)
                             for w in [1, 2, 3, 4]:
-                                card_df[f"Week {w} Actual"] = 0.0
+                                card_df[f"Week {w} Actual Achievement"] = 0.0
                             card_df["Notes"] = ""
 
                             if "scorecard_input_cache" not in st.session_state:
@@ -2966,19 +2970,20 @@ if file:
                                 column_config={
                                     "Category": st.column_config.TextColumn(disabled=True),
                                     "Metric": st.column_config.TextColumn(disabled=True),
-                                    "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f"),
-                                    "Target": st.column_config.NumberColumn(format="%.2f", help="Expected weekly target."),
-                                    "Week 1 Actual": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 2 Actual": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 3 Actual": st.column_config.NumberColumn(format="%.2f"),
-                                    "Week 4 Actual": st.column_config.NumberColumn(format="%.2f"),
+                                    "Weight %": st.column_config.NumberColumn(disabled=True, format="%.1f", help="Percentage contribution to final weighted score."),
+                                    "Weekly Target": st.column_config.NumberColumn(format="%.2f", help="Needed weekly output to be performed."),
+                                    "Actual": st.column_config.NumberColumn(format="%.2f", help="Current actual value."),
+                                    "Week 1 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 2 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 3 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
+                                    "Week 4 Actual Achievement": st.column_config.NumberColumn(format="%.2f"),
                                     "Notes": st.column_config.TextColumn(),
                                 },
                             )
                             st.session_state.scorecard_input_cache[cache_key] = edited.copy()
 
                             calc = edited.copy()
-                            for col in ["Target", "Week 1 Actual", "Week 2 Actual", "Week 3 Actual", "Week 4 Actual", "Weight %"]:
+                            for col in ["Weekly Target", "Actual", "Week 1 Actual Achievement", "Week 2 Actual Achievement", "Week 3 Actual Achievement", "Week 4 Actual Achievement", "Weight %"]:
                                 calc[col] = pd.to_numeric(calc[col], errors="coerce").fillna(0.0)
 
                             def week_score(actual, target, metric_name):
@@ -2991,7 +2996,7 @@ if file:
 
                             for w in [1, 2, 3, 4]:
                                 calc[f"Week {w} Score %"] = calc.apply(
-                                    lambda r: week_score(r[f"Week {w} Actual"], r["Target"], str(r["Metric"])),
+                                    lambda r: week_score(r[f"Week {w} Actual Achievement"], r["Weekly Target"], str(r["Metric"])),
                                     axis=1,
                                 )
 
@@ -3018,14 +3023,15 @@ if file:
                                     "Category",
                                     "Metric",
                                     "Weight %",
-                                    "Target",
-                                    "Week 1 Actual",
+                                    "Weekly Target",
+                                    "Actual",
+                                    "Week 1 Actual Achievement",
                                     "Week 1 Score %",
-                                    "Week 2 Actual",
+                                    "Week 2 Actual Achievement",
                                     "Week 2 Score %",
-                                    "Week 3 Actual",
+                                    "Week 3 Actual Achievement",
                                     "Week 3 Score %",
-                                    "Week 4 Actual",
+                                    "Week 4 Actual Achievement",
                                     "Week 4 Score %",
                                     "TOTAL ACHIEVEMENT FTM %",
                                     "Weighted Achievement %",
