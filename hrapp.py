@@ -1493,12 +1493,21 @@ if file:
                         bracket_source_col = col_tenure_bracket
                 has_bracket = bracket_source_col is not None
 
-                if has_months and has_bracket:
+                has_pos_group_vals = bool(
+                    col_pos_group
+                    and col_pos_group in act_for_tenure.columns
+                    and act_for_tenure[col_pos_group].astype(str).str.strip().replace({"nan": "", "None": ""}).ne("").any()
+                )
+
+                if has_months and (has_bracket or has_pos_group_vals):
                     hm_df = act_for_tenure.dropna(subset=["TENURE_NUM"]).copy()
-                    hm_df["_BR"] = hm_df[bracket_source_col].astype(str).str.strip()
-                    hm_df = hm_df[hm_df["_BR"].str.len() > 0]
+                    if has_pos_group_vals:
+                        hm_df["_PG"] = hm_df[col_pos_group].astype(str).str.strip().replace({"nan": "", "None": ""})
+                    else:
+                        hm_df["_PG"] = hm_df[bracket_source_col].astype(str).str.strip().replace({"nan": "", "None": ""})
+                    hm_df = hm_df[hm_df["_PG"].str.len() > 0]
                     if hm_df.empty:
-                        st.caption("No rows with both tenure months and bracket for heatmaps.")
+                        st.caption("No rows with both tenure months and position grouping for heatmaps.")
                     else:
                         hm_df["_MB"] = pd.cut(
                             hm_df["TENURE_NUM"],
@@ -1511,20 +1520,28 @@ if file:
                             st.caption("Could not bin tenure months for heatmap.")
                         else:
                             pv_mb = hm_df.pivot_table(
-                                index="_BR",
+                                index="_PG",
                                 columns="_MB",
                                 aggfunc="size",
                                 fill_value=0,
                             )
                             row_ord = sorted(pv_mb.index.tolist(), key=bracket_sort_key)
-                            pv_mb = pv_mb.reindex(row_ord)
-                            col_ord = [c for c in TENURE_BIN_LABELS if c in pv_mb.columns]
-                            pv_mb = pv_mb.reindex(columns=col_ord)
+                            pv_hm1 = pv_mb.reindex(row_ord)
+                            col_ord = [c for c in TENURE_BIN_LABELS if c in pv_hm1.columns]
+                            pv_hm1 = pv_hm1.reindex(columns=col_ord)
+                            first_x_label = "Tenure (months, binned)"
+                            first_y_label = "Position grouping" if has_pos_group_vals else "Tenure bracket"
+                            first_title = (
+                                "Heatmap — position grouping × months (binned)"
+                                if has_pos_group_vals
+                                else "Heatmap — tenure bracket × months (binned)"
+                            )
+
                             fig_hm1 = px.imshow(
-                                pv_mb,
+                                pv_hm1,
                                 labels=dict(
-                                    x="Tenure (months, binned)",
-                                    y="Tenure bracket",
+                                    x=first_x_label,
+                                    y=first_y_label,
                                     color="Active headcount",
                                 ),
                                 aspect="auto",
@@ -1537,7 +1554,7 @@ if file:
                             h1.plotly_chart(
                                 chart_layout(
                                     fig_hm1,
-                                    "Heatmap — tenure bracket × months (binned)",
+                                    first_title,
                                 ),
                                 use_container_width=True,
                             )
@@ -1570,7 +1587,7 @@ if file:
                                     keep = top_dim.value_counts().head(14).index.tolist()
                                     hm2 = hm_df[hm_df[split_col].astype(str).isin(keep)].copy()
                                     pv_sp = hm2.pivot_table(
-                                        index="_BR",
+                                        index="_PG",
                                         columns=split_col,
                                         aggfunc="size",
                                         fill_value=0,
@@ -1580,7 +1597,7 @@ if file:
                                         pv_sp,
                                         labels=dict(
                                             x=split_title,
-                                            y="Tenure bracket",
+                                            y=first_y_label,
                                             color="Active headcount",
                                         ),
                                         aspect="auto",
@@ -1592,7 +1609,11 @@ if file:
                                     h2.plotly_chart(
                                         chart_layout(
                                             fig_hm2,
-                                            f"Heatmap — tenure bracket × {split_title} (top {len(keep)})",
+                                            (
+                                                f"Heatmap — position grouping × {split_title} (top {len(keep)})"
+                                                if has_pos_group_vals
+                                                else f"Heatmap — tenure bracket × {split_title} (top {len(keep)})"
+                                            ),
                                         ),
                                         use_container_width=True,
                                     )
@@ -1602,10 +1623,24 @@ if file:
                                 h2.caption("Add **Company**, **Branch**, **Department**, or **Gender** for a second heatmap.")
 
                             with st.expander("Tenure heatmap data (matrix tables)", expanded=False):
-                                st.caption("Bracket × month bins (counts)")
-                                st.dataframe(pv_mb, use_container_width=True)
+                                if pv_mb is not None:
+                                    st.caption(
+                                        "Position grouping × month bins (counts)"
+                                        if has_pos_group_vals
+                                        else "Bracket × month bins (counts)"
+                                    )
+                                    st.dataframe(pv_mb, use_container_width=True)
+                                else:
+                                    st.caption("Bracket × position grouping (counts)")
+                                    st.dataframe(pv_hm1, use_container_width=True)
                                 if pv_sp is not None:
-                                    st.caption(f"Bracket × {split_title} (counts)")
+                                    st.caption(
+                                        (
+                                            f"Position grouping × {split_title} (counts)"
+                                            if has_pos_group_vals
+                                            else f"Bracket × {split_title} (counts)"
+                                        )
+                                    )
                                     st.dataframe(pv_sp, use_container_width=True)
                 elif has_months:
                     hm_df = act_for_tenure.dropna(subset=["TENURE_NUM"]).copy()
