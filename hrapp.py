@@ -3696,8 +3696,28 @@ if file:
 
             st.markdown("#### PIP form (web form in app)")
             emp_picks = sorted(full_m["Employee"].dropna().unique().tolist()) if not full_m.empty else []
-            if emp_picks and HAS_PYTHON_DOCX:
-                pick_pip = st.selectbox("Employee", emp_picks, key="mr_pip_form_emp")
+            if emp_picks:
+                pip_candidates = (
+                    full_m.sort_values("Year-Month")
+                    .groupby("Employee", as_index=False)
+                    .last()
+                    .query("Pct_of_EP < 80 or PIP_Trigger == True")
+                )
+                if not pip_candidates.empty:
+                    auto_emp = str(pip_candidates.iloc[0]["Employee"])
+                    st.warning(
+                        f"Auto PIP candidate detected from FTM weighted result: **{auto_emp}** "
+                        f"(below standard / trigger condition)."
+                    )
+                else:
+                    auto_emp = emp_picks[0]
+
+                pick_pip = st.selectbox(
+                    "Employee",
+                    emp_picks,
+                    index=emp_picks.index(auto_emp) if auto_emp in emp_picks else 0,
+                    key="mr_pip_form_emp",
+                )
                 sub_p = full_m[full_m["Employee"] == pick_pip].sort_values("Year-Month")
                 last_r = sub_p.iloc[-1]
                 dept_v, pos_v, branch_v, date_hired_v = "", "", "", ""
@@ -3841,19 +3861,20 @@ if file:
 
                 _calc_pack = st.session_state.get("scorecard_calc_cache", {}).get(f"sc::{pick_pip}")
                 _calc_df = _calc_pack.get("calc") if isinstance(_calc_pack, dict) else None
-                pip_doc = _build_pip_form_docx(pick_pip, ctx, _calc_df)
-                st.download_button(
-                    "Download PIP form (Word)",
-                    data=pip_doc.getvalue(),
-                    file_name=f"PIP_Form_{pick_pip.replace(' ', '_')}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key="mr_pip_word",
-                )
+                if HAS_PYTHON_DOCX:
+                    pip_doc = _build_pip_form_docx(pick_pip, ctx, _calc_df)
+                    st.download_button(
+                        "Download PIP form (Word)",
+                        data=pip_doc.getvalue(),
+                        file_name=f"PIP_Form_{pick_pip.replace(' ', '_')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="mr_pip_word",
+                    )
+                else:
+                    st.info("`python-docx` is not installed in this Streamlit environment. Web form still works; install it to enable Word download.")
                 st.caption("This PIP web form is editable directly in the app. Next step: we can fine-tune exactly which fields map into each line/cell of the template.")
             elif not emp_picks:
                 pass
-            else:
-                st.info("Install **python-docx** for PIP Word export: `pip install python-docx`")
 
     # =========================================================
     # 🧠 EXECUTIVE STORY
