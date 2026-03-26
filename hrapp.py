@@ -627,6 +627,7 @@ if file:
         col_tenure = find_col(["TENURE"], exclude_cols=_ex_tenure)
     col_edu = find_col(["EDUCATION"])
     col_dept = find_col(["DEPARTMENT", "DEPT"])
+    col_area = find_col(["AREA", "REGION", "CLUSTER"])
     col_branch = find_col(["BRANCH"])
     col_pos_group = find_col(["POSITION GROUPING", "POSITION GROUP", "POS GROUP"])
     _ex_pos = {c for c in [col_pos_group] if c}
@@ -3720,17 +3721,21 @@ if file:
                 )
                 sub_p = full_m[full_m["Employee"] == pick_pip].sort_values("Year-Month")
                 last_r = sub_p.iloc[-1]
-                dept_v, pos_v, branch_v, date_hired_v = "", "", "", ""
+                dept_v, pos_v, branch_v, date_hired_v, area_v, tenure_bracket_v = "", "", "", "", "", ""
                 if col_name and pick_pip and not df.empty:
                     er = df[df[col_name].astype(str).str.strip() == str(pick_pip).strip()]
                     if not er.empty:
                         lr = er.iloc[-1]
                         if col_dept and col_dept in df.columns:
                             dept_v = str(lr.get(col_dept, "") or "")
+                        if col_area and col_area in df.columns:
+                            area_v = str(lr.get(col_area, "") or "")
                         if col_position and col_position in df.columns:
                             pos_v = str(lr.get(col_position, "") or "")
                         if col_branch and col_branch in df.columns:
                             branch_v = str(lr.get(col_branch, "") or "")
+                        if col_tenure_bracket and col_tenure_bracket in df.columns:
+                            tenure_bracket_v = str(lr.get(col_tenure_bracket, "") or "")
                         if col_hire_date and col_hire_date in df.columns:
                             hd = lr.get(col_hire_date)
                             if pd.notna(hd):
@@ -3780,17 +3785,29 @@ if file:
                     if sk not in st.session_state:
                         st.session_state[sk] = (opt == "Weekly Coaching")
 
-                st.markdown("##### Employee Information")
-                a1, a2, a3 = st.columns(3)
+                st.markdown("##### Employee Information (Master list - read only)")
+                master_row = pd.DataFrame(
+                    [
+                        {
+                            "FULL NAME": pick_pip,
+                            "POSITION": pos_v,
+                            "AREA": area_v,
+                            "BRANCH": branch_v,
+                            "DATE HIRED": date_hired_v,
+                            "TENURE BRACKET": tenure_bracket_v,
+                        }
+                    ]
+                )
+                st.dataframe(master_row, use_container_width=True, hide_index=True)
+                st.caption("This section is auto-loaded from HR Master list and is not editable.")
+
+                a1, a2 = st.columns(2)
                 with a1:
-                    st.text_input("Employee Name", value=pick_pip, disabled=True, key=pref + "emp_show")
-                    st.text_input("Department", value=dept_v, key=pref + "department")
-                with a2:
-                    st.text_input("Branch / Area", value=branch_v, key=pref + "branch")
-                    st.text_input("Position", value=pos_v, key=pref + "position")
-                with a3:
-                    st.text_input("Date Hired", value=date_hired_v, key=pref + "date_hired")
+                    st.text_input("Department (for PIP form)", value=dept_v, key=pref + "department")
                     st.text_input("Manager / Area Head", key=pref + "manager")
+                with a2:
+                    st.text_input("Position (for PIP form)", value=pos_v, disabled=True, key=pref + "position")
+                    st.text_input("Branch / Area (for PIP form)", value=branch_v, disabled=True, key=pref + "branch")
 
                 b1, b2, b3 = st.columns(3)
                 with b1:
@@ -3838,7 +3855,7 @@ if file:
                     "department": st.session_state.get(pref + "department", dept_v),
                     "position": st.session_state.get(pref + "position", pos_v),
                     "branch": st.session_state.get(pref + "branch", branch_v),
-                    "date_hired": st.session_state.get(pref + "date_hired", date_hired_v),
+                    "date_hired": date_hired_v,
                     "manager": st.session_state.get(pref + "manager", ""),
                     "pip_enrollment": st.session_state.get(pref + "pip_enrollment", datetime.now().strftime("%Y-%m-%d")),
                     "pip_from": st.session_state.get(pref + "pip_from", pip_from),
