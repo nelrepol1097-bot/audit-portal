@@ -320,11 +320,14 @@ def _apply_pip_revised_template(doc, employee_name: str, context: dict, scorecar
                 f"({context.get('pct_ep', '')}% of EP); {context.get('band', '')}"
             )
         elif line.startswith("Month 1 Production:"):
-            para.text = f"Month 1 Production: {context.get('month1_prod', '_______')}"
+            para.text = f"1st Month Count: {context.get('month1_prod', '_______')}"
         elif line.startswith("Month 2 Production:"):
-            para.text = f"Month 2 Production: {context.get('month2_prod', '_______')}"
+            para.text = f"2nd Month Count: {context.get('month2_prod', '_______')}"
         elif line.startswith("Month 3 Production:"):
-            para.text = f"Month 3 Production: {context.get('month3_prod', '_______')}"
+            para.text = f"3rd Month Count: {context.get('month3_prod', '_______')}"
+        elif line.startswith("REMARKS"):
+            rmk = context.get("remarks_status", "")
+            para.text = "REMARKS\n" + (rmk if rmk else "_______________________________")
         elif line.startswith("PERFORMANCE GAP"):
             gap = context.get("gap_top3", "")
             para.text = "PERFORMANCE GAP (piliin ang top 3)\n" + (gap if gap else "_______________________________")
@@ -640,6 +643,7 @@ if file:
     col_hire_date = find_col(["DATE HIRED", "HIRE DATE", "DATE OF HIRE", "JOINING DATE", "DATE JOINED", "START DATE"])
     col_resign_date = find_col(["RESIGNATION DATE", "DATE RESIGNED", "RESIGNED DATE", "SEPARATION DATE", "TERMINATION DATE", "END DATE"])
     col_leave_reason = find_col(["REASON FOR LEAVING", "REASON OF LEAVING", "EXIT REASON", "SEPARATION REASON", "REASON FOR RESIGNATION", "REASON"])
+    col_remarks = find_col(["REMARKS", "STATUS REMARK", "PERFORMANCE REMARK"])
     col_ep = find_col(["EXPECTED PRODUCTION", "EP", "TARGET PRODUCTION", "PRODUCTION TARGET", "MR EP"])
 
     def detect_hr_date_column(frame):
@@ -3626,6 +3630,37 @@ if file:
                 enriched_parts.append(_enrich_mr_productivity_monthly(sub.copy(), _mr_ep_lookup(emp)))
             full_m = pd.concat(enriched_parts, ignore_index=True) if enriched_parts else pd.DataFrame()
 
+            def _mr_tenure_lookup(emp_name: str) -> str:
+                if not col_name or df.empty or not col_tenure_bracket or col_tenure_bracket not in df.columns:
+                    return ""
+                hit = df[df[col_name].astype(str).str.strip() == str(emp_name).strip()]
+                if hit.empty:
+                    return ""
+                return str(hit.iloc[-1].get(col_tenure_bracket, "") or "")
+
+            if not full_m.empty:
+                full_m["TENURE_BRACKET_MASTER"] = full_m["Employee"].map(_mr_tenure_lookup)
+                full_m["EFFICIENCY_TOTAL_%"] = pd.to_numeric(full_m["Pct_of_EP"], errors="coerce").round(2)
+
+                def _decision_category(row):
+                    ftm = pd.to_numeric(row.get("FTM_WEIGHTED_RESULT"), errors="coerce")
+                    pct = pd.to_numeric(row.get("Pct_of_EP"), errors="coerce")
+                    tb = str(row.get("TENURE_BRACKET_MASTER", "") or "").upper().strip()
+                    is_new_hire = ("NEW HIRE" in tb) or ("0-3" in tb) or ("0–3" in tb) or ("0 TO 3" in tb)
+
+                    # Rule requested: if New Hire and no efficiency in early period, tag as NEW HIRE.
+                    if is_new_hire and (pd.isna(ftm) or float(ftm) <= 0):
+                        return "NEW HIRE"
+                    if pd.isna(ftm) or float(ftm) <= 0:
+                        return "NO PRODUCTION"
+                    if pd.notna(pct) and float(pct) >= 100:
+                        return "ABOVE"
+                    if pd.notna(pct) and float(pct) >= 80:
+                        return "WITHIN"
+                    return "BELOW"
+
+                full_m["Decision Category"] = full_m.apply(_decision_category, axis=1)
+
             st.markdown("#### Monthly results & PIP logic")
             show_cols = [
                 "Employee",
@@ -3633,6 +3668,9 @@ if file:
                 "FTM_WEIGHTED_RESULT",
                 "EP_ref",
                 "Pct_of_EP",
+                "EFFICIENCY_TOTAL_%",
+                "TENURE_BRACKET_MASTER",
+                "Decision Category",
                 "MR_Band",
                 "Below_Standard",
                 "PIP_Trigger",
@@ -3721,7 +3759,7 @@ if file:
                 )
                 sub_p = full_m[full_m["Employee"] == pick_pip].sort_values("Year-Month")
                 last_r = sub_p.iloc[-1]
-                dept_v, pos_v, branch_v, date_hired_v, area_v, tenure_bracket_v = "", "", "", "", "", ""
+                dept_v, pos_v, branch_v, date_hired_v, area_v, tenure_bracket_v, remarks_v = "", "", "", "", "", "", ""
                 if col_name and pick_pip and not df.empty:
                     er = df[df[col_name].astype(str).str.strip() == str(pick_pip).strip()]
                     if not er.empty:
@@ -3736,6 +3774,8 @@ if file:
                             branch_v = str(lr.get(col_branch, "") or "")
                         if col_tenure_bracket and col_tenure_bracket in df.columns:
                             tenure_bracket_v = str(lr.get(col_tenure_bracket, "") or "")
+                        if col_remarks and col_remarks in df.columns:
+                            remarks_v = str(lr.get(col_remarks, "") or "")
                         if col_hire_date and col_hire_date in df.columns:
                             hd = lr.get(col_hire_date)
                             if pd.notna(hd):
@@ -3760,6 +3800,9 @@ if file:
                 if last_r.get("Below_Standard"):
                     trig_basis.append("Month classified below standard vs EP.")
                 trig_basis_default = " ".join(trig_basis) if trig_basis else ""
+                decision_default = str(last_r.get("Decision Category", "") or "").upper().strip()
+                if decision_default not in ["ABOVE", "WITHIN", "BELOW", "NO PRODUCTION", "NEW HIRE"]:
+                    decision_default = ""
 
                 pref = f"mr_pip::{pick_pip}::"
                 defaults = {
@@ -3775,6 +3818,8 @@ if file:
                     "possible_outcome": "",
                     "monthly_target_plan": "",
                     "identified_support_others": "",
+                    "remarks_status": remarks_v if remarks_v in ["HIT", "MISSED", "ZERO PRODUCTION"] else "HIT",
+                    "decision_category": decision_default,
                 }
                 for dk, dv in defaults.items():
                     sk = pref + dk
@@ -3795,6 +3840,8 @@ if file:
                             "BRANCH": branch_v,
                             "DATE HIRED": date_hired_v,
                             "TENURE BRACKET": tenure_bracket_v,
+                            "REMARKS": remarks_v,
+                            "DECISION CATEGORY": str(last_r.get("Decision Category", "") or ""),
                         }
                     ]
                 )
@@ -3821,12 +3868,14 @@ if file:
                 st.text_input("Target Monthly Production line", value=f"EP {float(last_r.get('EP_ref', ep_global)):.1f}%", key=pref + "target_line")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.text_input("Month 1 Production", key=pref + "month1_prod")
+                    st.text_input("1st Month Count", key=pref + "month1_prod")
                 with c2:
-                    st.text_input("Month 2 Production", key=pref + "month2_prod")
+                    st.text_input("2nd Month Count", key=pref + "month2_prod")
                 with c3:
-                    st.text_input("Month 3 Production", key=pref + "month3_prod")
+                    st.text_input("3rd Month Count", key=pref + "month3_prod")
                 st.text_area("PIP Trigger / Basis", key=pref + "trigger_basis", height=80)
+                st.selectbox("Remarks", ["HIT", "MISSED", "ZERO PRODUCTION"], key=pref + "remarks_status")
+                st.text_input("Decision Category (auto)", key=pref + "decision_category", disabled=True)
 
                 st.markdown("##### IDENTIFIED SUPPORT")
                 s1, s2, s3, s4 = st.columns(4)
@@ -3874,6 +3923,8 @@ if file:
                     "gap_top3": st.session_state.get(pref + "gap_top3", ""),
                     "possible_outcome": st.session_state.get(pref + "possible_outcome", ""),
                     "monthly_target_plan": st.session_state.get(pref + "monthly_target_plan", ""),
+                    "remarks_status": st.session_state.get(pref + "remarks_status", "HIT"),
+                    "decision_category": st.session_state.get(pref + "decision_category", decision_default),
                 }
 
                 _calc_pack = st.session_state.get("scorecard_calc_cache", {}).get(f"sc::{pick_pip}")
