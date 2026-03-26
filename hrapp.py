@@ -270,6 +270,24 @@ def _pip_template_fill_scorecard_table(tbl, calc_df):
                     cells[ci].text = str(v)
 
 
+def _format_identified_support(context: dict) -> str:
+    """Render support checklist text for PIP export."""
+    picks = set(context.get("identified_support", []) or [])
+    others_txt = (context.get("identified_support_others", "") or "").strip()
+
+    def mark(label):
+        return "☑" if label in picks else "☐"
+
+    other_val = others_txt if others_txt else "____________________________"
+    return (
+        "IDENTIFIED SUPPORT\n"
+        f"{mark('BuddyUp Program')} BuddyUp Program    "
+        f"{mark('L&D Support')} L&D Support    "
+        f"{mark('Weekly Coaching')} Weekly Coaching    "
+        f"{mark('Others')} Others: {other_val}"
+    )
+
+
 def _apply_pip_revised_template(doc, employee_name: str, context: dict, scorecard_calc_df=None):
     """Populate employee table, production lines, and optional scorecard grid in the official PIP layout."""
     t0 = doc.tables[0]
@@ -290,9 +308,12 @@ def _apply_pip_revised_template(doc, employee_name: str, context: dict, scorecar
     put(4, 2, context.get("pip_from", ""))
     put(4, 4, context.get("pip_to", ""))
 
+    support_line = _format_identified_support(context)
     for para in doc.paragraphs:
         line = para.text.strip()
-        if line.startswith("Target Monthly Production:"):
+        if line.startswith("REASON FOR PIP ENROLLMENT"):
+            para.text = f"REASON FOR PIP ENROLLMENT\n{support_line}"
+        elif line.startswith("Target Monthly Production:"):
             para.text = (
                 f"Target Monthly Production: EP {context.get('ep', '')}% — "
                 f"latest FTM weighted {context.get('ftm', '')}% "
@@ -304,6 +325,15 @@ def _apply_pip_revised_template(doc, employee_name: str, context: dict, scorecar
             para.text = f"Month 2 Production: {context.get('month2_prod', '_______')}"
         elif line.startswith("Month 3 Production:"):
             para.text = f"Month 3 Production: {context.get('month3_prod', '_______')}"
+        elif line.startswith("PERFORMANCE GAP"):
+            gap = context.get("gap_top3", "")
+            para.text = "PERFORMANCE GAP (piliin ang top 3)\n" + (gap if gap else "_______________________________")
+        elif line.startswith("POSSIBLE OUTCOME"):
+            out = context.get("possible_outcome", "")
+            para.text = "POSSIBLE OUTCOME\n" + (out if out else "_______________________________")
+        elif line.startswith("MONTHLY PERFORMANCE TARGET"):
+            plan = context.get("monthly_target_plan", "")
+            para.text = "MONTHLY PERFORMANCE TARGET\n" + (plan if plan else "_______________________________")
 
     if scorecard_calc_df is not None and len(doc.tables) > 3:
         _pip_template_fill_scorecard_table(doc.tables[3], scorecard_calc_df)
@@ -343,6 +373,7 @@ def _build_pip_form_docx(employee_name: str, context: dict, scorecard_calc_df=No
     row_form("Achievement vs EP (%)", context.get("pct_ep", ""))
     row_form("MR classification", context.get("band", ""))
     row_form("PIP trigger basis", context.get("trigger_basis", ""))
+    row_form("Identified support", _format_identified_support(context).replace("\n", " | "))
     row_form("Corrective coaching plan (dates / owner)", "")
     row_form("Metrics to improve (measurable)", "")
     row_form("Check-in dates (mo 1 / 2 / 3)", "_______ / _______ / _______")
@@ -3663,10 +3694,10 @@ if file:
                 else:
                     st.caption("Install **python-docx** for Word export.")
 
-            st.markdown("#### PIP form (fill-style Word)")
+            st.markdown("#### PIP form (web form in app)")
             emp_picks = sorted(full_m["Employee"].dropna().unique().tolist()) if not full_m.empty else []
             if emp_picks and HAS_PYTHON_DOCX:
-                pick_pip = st.selectbox("Employee for PIP form export", emp_picks, key="mr_pip_form_emp")
+                pick_pip = st.selectbox("Employee", emp_picks, key="mr_pip_form_emp")
                 sub_p = full_m[full_m["Employee"] == pick_pip].sort_values("Year-Month")
                 last_r = sub_p.iloc[-1]
                 dept_v, pos_v, branch_v, date_hired_v = "", "", "", ""
@@ -3684,11 +3715,7 @@ if file:
                             hd = lr.get(col_hire_date)
                             if pd.notna(hd):
                                 date_hired_v = str(hd)[:19]
-                trig_basis = []
-                if last_r.get("PIP_Trigger"):
-                    trig_basis.append("Rule fired on this row (2 consecutive below or 2 of last 3 below).")
-                if last_r.get("Below_Standard"):
-                    trig_basis.append("Month classified below standard vs EP.")
+
                 hist_ftm = []
                 for _, rr in sub_p.tail(3).iterrows():
                     hist_ftm.append(f"{float(rr['FTM_WEIGHTED_RESULT']):.2f}%")
@@ -3701,26 +3728,117 @@ if file:
                 except Exception:
                     pip_from = str(last_r.get("YearMonthStr", ""))
                     pip_to = ""
-                ctx = {
-                    "dept": dept_v,
-                    "department": dept_v,
-                    "position": pos_v,
-                    "branch": " / ".join(x for x in [dept_v, branch_v] if x),
-                    "date_hired": date_hired_v,
+
+                trig_basis = []
+                if last_r.get("PIP_Trigger"):
+                    trig_basis.append("Rule fired on this row (2 consecutive below or 2 of last 3 below).")
+                if last_r.get("Below_Standard"):
+                    trig_basis.append("Month classified below standard vs EP.")
+                trig_basis_default = " ".join(trig_basis) if trig_basis else ""
+
+                pref = f"mr_pip::{pick_pip}::"
+                defaults = {
                     "manager": "",
                     "pip_enrollment": datetime.now().strftime("%Y-%m-%d"),
                     "pip_from": pip_from,
                     "pip_to": pip_to,
+                    "month1_prod": hist_ftm[0],
+                    "month2_prod": hist_ftm[1],
+                    "month3_prod": hist_ftm[2],
+                    "trigger_basis": trig_basis_default,
+                    "gap_top3": "",
+                    "possible_outcome": "",
+                    "monthly_target_plan": "",
+                    "identified_support_others": "",
+                }
+                for dk, dv in defaults.items():
+                    sk = pref + dk
+                    if sk not in st.session_state:
+                        st.session_state[sk] = dv
+                for opt in ["BuddyUp Program", "L&D Support", "Weekly Coaching", "Others"]:
+                    sk = pref + "support::" + opt
+                    if sk not in st.session_state:
+                        st.session_state[sk] = (opt == "Weekly Coaching")
+
+                st.markdown("##### Employee Information")
+                a1, a2, a3 = st.columns(3)
+                with a1:
+                    st.text_input("Employee Name", value=pick_pip, disabled=True, key=pref + "emp_show")
+                    st.text_input("Department", value=dept_v, key=pref + "department")
+                with a2:
+                    st.text_input("Branch / Area", value=branch_v, key=pref + "branch")
+                    st.text_input("Position", value=pos_v, key=pref + "position")
+                with a3:
+                    st.text_input("Date Hired", value=date_hired_v, key=pref + "date_hired")
+                    st.text_input("Manager / Area Head", key=pref + "manager")
+
+                b1, b2, b3 = st.columns(3)
+                with b1:
+                    st.text_input("Date of PIP Enrollment", key=pref + "pip_enrollment")
+                with b2:
+                    st.text_input("PIP Period From", key=pref + "pip_from")
+                with b3:
+                    st.text_input("PIP Period To", key=pref + "pip_to")
+
+                st.markdown("##### Reason for PIP Enrollment")
+                st.text_input("Target Monthly Production line", value=f"EP {float(last_r.get('EP_ref', ep_global)):.1f}%", key=pref + "target_line")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.text_input("Month 1 Production", key=pref + "month1_prod")
+                with c2:
+                    st.text_input("Month 2 Production", key=pref + "month2_prod")
+                with c3:
+                    st.text_input("Month 3 Production", key=pref + "month3_prod")
+                st.text_area("PIP Trigger / Basis", key=pref + "trigger_basis", height=80)
+
+                st.markdown("##### IDENTIFIED SUPPORT")
+                s1, s2, s3, s4 = st.columns(4)
+                with s1:
+                    st.checkbox("BuddyUp Program", key=pref + "support::BuddyUp Program")
+                with s2:
+                    st.checkbox("L&D Support", key=pref + "support::L&D Support")
+                with s3:
+                    st.checkbox("Weekly Coaching", key=pref + "support::Weekly Coaching")
+                with s4:
+                    st.checkbox("Others", key=pref + "support::Others")
+                st.text_input("Others details", key=pref + "identified_support_others", placeholder="If Others is checked, type details here")
+
+                st.markdown("##### Additional PIP fields")
+                st.text_input("Performance Gap (Top 3)", key=pref + "gap_top3", placeholder="Example: Low client visits, below UDI, weak contact rate")
+                st.text_input("Possible Outcome", key=pref + "possible_outcome", placeholder="Example: Continue coaching / Extend PIP / Separation")
+                st.text_area("Monthly Performance Target / Action Plan", key=pref + "monthly_target_plan", height=100)
+
+                support_choices = []
+                for opt in ["BuddyUp Program", "L&D Support", "Weekly Coaching", "Others"]:
+                    if st.session_state.get(pref + "support::" + opt, False):
+                        support_choices.append(opt)
+
+                ctx = {
+                    "dept": st.session_state.get(pref + "department", dept_v),
+                    "department": st.session_state.get(pref + "department", dept_v),
+                    "position": st.session_state.get(pref + "position", pos_v),
+                    "branch": st.session_state.get(pref + "branch", branch_v),
+                    "date_hired": st.session_state.get(pref + "date_hired", date_hired_v),
+                    "manager": st.session_state.get(pref + "manager", ""),
+                    "pip_enrollment": st.session_state.get(pref + "pip_enrollment", datetime.now().strftime("%Y-%m-%d")),
+                    "pip_from": st.session_state.get(pref + "pip_from", pip_from),
+                    "pip_to": st.session_state.get(pref + "pip_to", pip_to),
                     "month": str(last_r.get("YearMonthStr", "")),
                     "ftm": f"{float(last_r.get('FTM_WEIGHTED_RESULT', 0)):.2f}",
                     "ep": f"{float(last_r.get('EP_ref', ep_global)):.1f}",
                     "pct_ep": f"{float(last_r.get('Pct_of_EP', 0)):.1f}",
                     "band": str(last_r.get("MR_Band", "")),
-                    "trigger_basis": " ".join(trig_basis) if trig_basis else " _________________________ ",
-                    "month1_prod": hist_ftm[0],
-                    "month2_prod": hist_ftm[1],
-                    "month3_prod": hist_ftm[2],
+                    "trigger_basis": st.session_state.get(pref + "trigger_basis", trig_basis_default),
+                    "month1_prod": st.session_state.get(pref + "month1_prod", hist_ftm[0]),
+                    "month2_prod": st.session_state.get(pref + "month2_prod", hist_ftm[1]),
+                    "month3_prod": st.session_state.get(pref + "month3_prod", hist_ftm[2]),
+                    "identified_support": support_choices,
+                    "identified_support_others": st.session_state.get(pref + "identified_support_others", ""),
+                    "gap_top3": st.session_state.get(pref + "gap_top3", ""),
+                    "possible_outcome": st.session_state.get(pref + "possible_outcome", ""),
+                    "monthly_target_plan": st.session_state.get(pref + "monthly_target_plan", ""),
                 }
+
                 _calc_pack = st.session_state.get("scorecard_calc_cache", {}).get(f"sc::{pick_pip}")
                 _calc_df = _calc_pack.get("calc") if isinstance(_calc_pack, dict) else None
                 pip_doc = _build_pip_form_docx(pick_pip, ctx, _calc_df)
@@ -3731,13 +3849,7 @@ if file:
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     key="mr_pip_word",
                 )
-                if PIP_FORM_TEMPLATE_PATH.is_file():
-                    st.caption(
-                        "Opens your **PIP_Form Revised.docx** layout: header table, production lines, "
-                        "and scorecard grid (if you computed the scorecard for this employee in this session)."
-                    )
-                else:
-                    st.caption("Add **PIP_Form Revised.docx** next to `hrapp.py` to use your official template.")
+                st.caption("This PIP web form is editable directly in the app. Next step: we can fine-tune exactly which fields map into each line/cell of the template.")
             elif not emp_picks:
                 pass
             else:
