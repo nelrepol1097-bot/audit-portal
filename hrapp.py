@@ -14,7 +14,20 @@ from datetime import datetime
 from pathlib import Path
 import streamlit.components.v1 as components
 
+try:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    HAS_PYTHON_DOCX = True
+except ImportError:
+    HAS_PYTHON_DOCX = False
+
 st.set_page_config(layout="wide")
+
+# Project folder (holds PIP_Form Revised.docx, MR Productivity_Sample Data.xlsx, etc.)
+HR_APP_DIR = Path(__file__).resolve().parent
+PIP_FORM_TEMPLATE_PATH = HR_APP_DIR / "PIP_Form Revised.docx"
+MR_PRODUCTIVITY_SAMPLE_PATH = HR_APP_DIR / "MR Productivity_Sample Data.xlsx"
 
 
 @st.cache_data(show_spinner=False)
@@ -33,6 +46,323 @@ def load_hr_workbook(file_bytes):
     pcni_tbl = read_optional("PCNI Hiring Actual vs Target")
     suki_tbl = read_optional("SUKI Hiring Actual vs. Target")
     return core, info, fc_tbl, pcni_tbl, suki_tbl
+
+
+def _scorecard_snapshots_to_monthly_ftm(snapshot_list):
+    """
+    One row per employee per calendar month from scorecard snapshots.
+    FTM weighted result = sum of 'Weighted Achievement %' for that save.
+    Uses REPORTING_MONTH on the snapshot when present; otherwise Saved at month.
+    """
+    if not snapshot_list:
+        return pd.DataFrame()
+    big = pd.concat(snapshot_list, ignore_index=True)
+    need = {"Employee", "Saved at", "Weighted Achievement %"}
+    if not need.issubset(big.columns):
+        return pd.DataFrame()
+    big = big.copy()
+    big["Weighted Achievement %"] = pd.to_numeric(big["Weighted Achievement %"], errors="coerce").fillna(0.0)
+    big["Saved at"] = pd.to_datetime(big["Saved at"], errors="coerce")
+    big = big.dropna(subset=["Saved at"])
+
+    def _first_reporting_month(s):
+        s2 = s.dropna()
+        if s2.empty:
+            return np.nan
+        return s2.iloc[0]
+
+    if "REPORTING_MONTH" in big.columns:
+        per = (
+            big.groupby(["Employee", "Saved at"], dropna=False)
+            .agg(
+                FTM_WEIGHTED_RESULT=("Weighted Achievement %", "sum"),
+                REPORTING_MONTH=("REPORTING_MONTH", _first_reporting_month),
+            )
+            .reset_index()
+        )
+    else:
+        per = (
+            big.groupby(["Employee", "Saved at"], dropna=False)["Weighted Achievement %"]
+            .sum()
+            .reset_index(name="FTM_WEIGHTED_RESULT")
+        )
+        per["REPORTING_MONTH"] = np.nan
+
+    def _to_period(row):
+        rm = row["REPORTING_MONTH"]
+        if rm is not None and not (isinstance(rm, float) and pd.isna(rm)) and str(rm).strip():
+            try:
+                s = str(rm).strip()[:7]
+                if len(s) == 7 and s[4] == "-":
+                    return pd.Period(s, freq="M")
+            except (ValueError, TypeError):
+                pass
+            t = pd.to_datetime(rm, errors="coerce")
+            if pd.notna(t):
+                return pd.Period(t, freq="M")
+        return pd.Period(row["Saved at"], freq="M")
+
+    per["Year-Month"] = per.apply(_to_period, axis=1)
+    per = per.sort_values("Saved at")
+    monthly = per.groupby(["Employee", "Year-Month"], as_index=False).last()
+    monthly["YearMonthStr"] = monthly["Year-Month"].astype(str)
+    return monthly
+
+
+def _enrich_mr_productivity_monthly(monthly: pd.DataFrame, ep: float) -> pd.DataFrame:
+    """Apply MR bands, PIP trigger (2 consecutive below OR 2 of last 3 below), 3-mo PIP review, 2nd PIP ≤12 mo."""
+    m = monthly.sort_values("Year-Month").reset_index(drop=True)
+    if m.empty:
+        return m
+    f = m["FTM_WEIGHTED_RESULT"].astype(float)
+    ep = float(ep) if ep else 100.0
+    ratio = f / ep
+    ratio = ratio.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    m = m.copy()
+    m["EP_ref"] = ep
+    m["Pct_of_EP"] = ratio * 100.0
+    m["MR_Band"] = np.where(
+        ratio >= 1.0,
+        "Above Standard → Retain",
+        np.where(
+            ratio >= 0.8,
+            "Within Standard → Developmental Coaching & Training",
+            "Below Standard → PIP trigger + Corrective Coaching",
+        ),
+    )
+    below = (ratio < 0.8).astype(bool)
+    m["Below_Standard"] = below
+    m["Within_Or_Better"] = (ratio >= 0.8).astype(bool)
+
+    trig = []
+    for i in range(len(m)):
+        ok = False
+        if i >= 1 and bool(below.iloc[i]) and bool(below.iloc[i - 1]):
+            ok = True
+        if i >= 2 and int(below.iloc[i - 2]) + int(below.iloc[i - 1]) + int(below.iloc[i]) >= 2:
+            ok = True
+        trig.append(ok)
+    m["PIP_Trigger"] = trig
+
+    second_term = []
+    triggers_so_far = []
+    for i in range(len(m)):
+        if not trig[i]:
+            second_term.append(False)
+            continue
+        period = m["Year-Month"].iloc[i]
+        bad = False
+        for tp in triggers_so_far:
+            gap = period - tp
+            if gap is not None and 0 < int(gap) <= 12:
+                bad = True
+                break
+        second_term.append(bad)
+        triggers_so_far.append(period)
+    m["Second_PIP_Within_12mo_Terminate"] = second_term
+
+    pip_review = []
+    for i in range(len(m)):
+        if not trig[i]:
+            pip_review.append("")
+            continue
+        if i + 2 >= len(m):
+            pip_review.append("PIP: add more months in history for full 3-month PIP window review")
+            continue
+        window = m.iloc[i : i + 3]
+        good = int(window["Within_Or_Better"].sum())
+        if good >= 2:
+            pip_review.append(
+                "PIP exit rule: ≥2 of 3 PIP months Within Standard or better — may exit PIP successfully"
+            )
+        else:
+            pip_review.append(
+                "PIP exit rule: fewer than 2 of 3 PIP months Within Standard or better — TERMINATE per policy"
+            )
+    m["PIP_3Mo_Review"] = pip_review
+    return m
+
+
+def _build_mr_productivity_sample_docx(monthly_display: pd.DataFrame, ep_note: str):
+    """Form-style Word summary (MR productivity monitoring sample)."""
+    doc = Document()
+    h = doc.add_heading("MR Productivity Monitoring — Summary", 0)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph(
+        "Data sourced from Employee Scorecard Monitoring (FTM weighted result vs Expected Production)."
+    )
+    doc.add_paragraph(f"EP (Expected Production) reference: {ep_note}")
+    doc.add_paragraph("")
+    doc.add_paragraph("Complete the sections below as applicable:")
+    tbl = doc.add_table(rows=1, cols=8)
+    hdr = tbl.rows[0].cells
+    headers = [
+        "Employee",
+        "Month",
+        "FTM weighted %",
+        "EP %",
+        "% of EP",
+        "Classification",
+        "PIP trigger?",
+        "Notes / actions",
+    ]
+    for i, t in enumerate(headers):
+        hdr[i].text = t
+        for p in hdr[i].paragraphs:
+            for r in p.runs:
+                r.bold = True
+    for _, row in monthly_display.iterrows():
+        cells = tbl.add_row().cells
+        cells[0].text = str(row.get("Employee", ""))
+        cells[1].text = str(row.get("YearMonthStr", ""))
+        cells[2].text = f"{row.get('FTM_WEIGHTED_RESULT', 0):.2f}"
+        cells[3].text = f"{row.get('EP_ref', 0):.1f}"
+        cells[4].text = f"{row.get('Pct_of_EP', 0):.1f}"
+        cells[5].text = str(row.get("MR_Band", ""))
+        cells[6].text = "Yes" if row.get("PIP_Trigger") else "No"
+        tail = []
+        if row.get("PIP_3Mo_Review"):
+            tail.append(row.get("PIP_3Mo_Review"))
+        if row.get("Second_PIP_Within_12mo_Terminate"):
+            tail.append("Second PIP trigger within 12 months — TERMINATE per policy.")
+        cells[7].text = " | ".join(tail) if tail else "_____________________________"
+    doc.add_paragraph("")
+    p = doc.add_paragraph(
+        "Signatures / approvals: _________________________  Date: _______________"
+    )
+    p = doc.add_paragraph("HR / Manager remarks: _________________________________________________")
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
+
+
+def _pip_template_fill_scorecard_table(tbl, calc_df):
+    """Fill buddy-up scorecard grid (table 3) in PIP_Form Revised.docx."""
+    if tbl is None or calc_df is None or calc_df.empty:
+        return
+    cdf = calc_df.reset_index(drop=True)
+    n = min(len(cdf), max(0, len(tbl.rows) - 1))
+    colmap = [
+        ("Week 1 Actual Achievement", 4),
+        ("Week 1 Score %", 5),
+        ("Week 2 Actual Achievement", 6),
+        ("Week 2 Score %", 7),
+        ("Week 3 Actual Achievement", 8),
+        ("Week 3 Score %", 9),
+        ("Week 4 Actual Achievement", 10),
+        ("Week 4 Score %", 11),
+        ("TOTAL ACHIEVEMENT FTM %", 12),
+    ]
+    for i in range(n):
+        row = cdf.iloc[i]
+        cells = tbl.rows[i + 1].cells
+        if len(cells) < 13:
+            continue
+        for cname, ci in colmap:
+            v = row.get(cname)
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                cells[ci].text = ""
+            else:
+                try:
+                    cells[ci].text = f"{float(v):.2f}"
+                except (TypeError, ValueError):
+                    cells[ci].text = str(v)
+
+
+def _apply_pip_revised_template(doc, employee_name: str, context: dict, scorecard_calc_df=None):
+    """Populate employee table, production lines, and optional scorecard grid in the official PIP layout."""
+    t0 = doc.tables[0]
+
+    def put(r, c, val):
+        if r < len(t0.rows):
+            row = t0.rows[r]
+            if c < len(row.cells):
+                row.cells[c].text = "" if val is None else str(val)
+
+    put(0, 1, employee_name)
+    put(0, 6, context.get("branch", ""))
+    put(1, 1, context.get("date_hired", ""))
+    put(1, 6, context.get("position", ""))
+    put(2, 1, context.get("manager", ""))
+    put(2, 6, context.get("department", ""))
+    put(3, 1, context.get("pip_enrollment", ""))
+    put(4, 2, context.get("pip_from", ""))
+    put(4, 4, context.get("pip_to", ""))
+
+    for para in doc.paragraphs:
+        line = para.text.strip()
+        if line.startswith("Target Monthly Production:"):
+            para.text = (
+                f"Target Monthly Production: EP {context.get('ep', '')}% — "
+                f"latest FTM weighted {context.get('ftm', '')}% "
+                f"({context.get('pct_ep', '')}% of EP); {context.get('band', '')}"
+            )
+        elif line.startswith("Month 1 Production:"):
+            para.text = f"Month 1 Production: {context.get('month1_prod', '_______')}"
+        elif line.startswith("Month 2 Production:"):
+            para.text = f"Month 2 Production: {context.get('month2_prod', '_______')}"
+        elif line.startswith("Month 3 Production:"):
+            para.text = f"Month 3 Production: {context.get('month3_prod', '_______')}"
+
+    if scorecard_calc_df is not None and len(doc.tables) > 3:
+        _pip_template_fill_scorecard_table(doc.tables[3], scorecard_calc_df)
+
+
+def _build_pip_form_docx(employee_name: str, context: dict, scorecard_calc_df=None):
+    """
+    Prefers **PIP_Form Revised.docx** saved next to hrapp.py (your template).
+    Falls back to a minimal generated form if the file is missing.
+    """
+    if HAS_PYTHON_DOCX and PIP_FORM_TEMPLATE_PATH.is_file():
+        doc = Document(str(PIP_FORM_TEMPLATE_PATH))
+        _apply_pip_revised_template(doc, employee_name, context, scorecard_calc_df)
+        bio = BytesIO()
+        doc.save(bio)
+        bio.seek(0)
+        return bio
+
+    doc = Document()
+    h = doc.add_heading("Performance Improvement Plan (PIP) — Revised", 0)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph("Complete all fields. Attach scorecard / MR productivity evidence as needed.")
+    doc.add_paragraph("")
+
+    def row_form(label, value=""):
+        t = doc.add_table(rows=1, cols=2)
+        c0, c1 = t.rows[0].cells
+        c0.text = label
+        c1.text = value if value else "_______________________________"
+
+    row_form("Employee name", employee_name)
+    row_form("Department / Branch", context.get("dept", ""))
+    row_form("Position", context.get("position", ""))
+    row_form("Reporting month (review period)", context.get("month", ""))
+    row_form("FTM weighted result (%)", context.get("ftm", ""))
+    row_form("Expected Production EP (%)", context.get("ep", ""))
+    row_form("Achievement vs EP (%)", context.get("pct_ep", ""))
+    row_form("MR classification", context.get("band", ""))
+    row_form("PIP trigger basis", context.get("trigger_basis", ""))
+    row_form("Corrective coaching plan (dates / owner)", "")
+    row_form("Metrics to improve (measurable)", "")
+    row_form("Check-in dates (mo 1 / 2 / 3)", "_______ / _______ / _______")
+    row_form(
+        "PIP outcome after 3 months (HR use)",
+        "Met / extend / separation (checklist as needed).",
+    )
+    doc.add_paragraph("")
+    doc.add_paragraph(
+        "Employee acknowledgement: __________________________  Date: _______________"
+    )
+    doc.add_paragraph(
+        "Manager acknowledgement: ___________________________  Date: _______________"
+    )
+    doc.add_paragraph("HR acknowledgement: _____________________________  Date: _______________")
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
+
 
 # =========================================================
 # 🌌 FUTURISTIC UI
@@ -213,6 +543,7 @@ page = st.sidebar.radio("📊 Navigation", [
     "🎯 Hiring vs Target",
     "😊 eNPS Survey",
     "📋 Employee Scorecard Monitoring",
+    "📈 MR Productivity Monitoring",
     "🧠 Executive Story"
 ])
 
@@ -277,6 +608,7 @@ if file:
     col_hire_date = find_col(["DATE HIRED", "HIRE DATE", "DATE OF HIRE", "JOINING DATE", "DATE JOINED", "START DATE"])
     col_resign_date = find_col(["RESIGNATION DATE", "DATE RESIGNED", "RESIGNED DATE", "SEPARATION DATE", "TERMINATION DATE", "END DATE"])
     col_leave_reason = find_col(["REASON FOR LEAVING", "REASON OF LEAVING", "EXIT REASON", "SEPARATION REASON", "REASON FOR RESIGNATION", "REASON"])
+    col_ep = find_col(["EXPECTED PRODUCTION", "EP", "TARGET PRODUCTION", "PRODUCTION TARGET", "MR EP"])
 
     def detect_hr_date_column(frame):
         """Pick the best column for calendar filtering (hire / join / start / effective dates)."""
@@ -3147,6 +3479,13 @@ if file:
                             else:
                                 st.caption("Click **Compute scorecard** after input to render results.")
 
+                            reporting_month_input = st.text_input(
+                                "Reporting month for MR productivity (YYYY-MM)",
+                                value=datetime.now().strftime("%Y-%m"),
+                                key=f"scorecard_reporting_month::{picked_name}",
+                                help="Used when aggregating monthly FTM in MR Productivity Monitoring. "
+                                "Defaults to calendar month; change if this scorecard is for another period.",
+                            )
                             if "scorecard_saved_snapshots" not in st.session_state:
                                 st.session_state.scorecard_saved_snapshots = []
                             if st.button("Save scorecard snapshot", key=f"save_scorecard_snapshot::{picked_name}"):
@@ -3154,9 +3493,17 @@ if file:
                                 if not calc_pack:
                                     st.warning("Compute scorecard first before saving snapshot.")
                                 else:
+                                    rm_txt = (reporting_month_input or "").strip()
+                                    try:
+                                        pd.Period(rm_txt, freq="M")
+                                        rm_out = rm_txt[:7] if len(rm_txt) >= 7 else datetime.now().strftime("%Y-%m")
+                                    except (ValueError, TypeError):
+                                        rm_out = datetime.now().strftime("%Y-%m")
+                                        st.warning(f"Invalid YYYY-MM — saved under **{rm_out}** instead.")
                                     snapshot = calc_pack["calc"].copy()
                                     snapshot.insert(0, "Employee", picked_name)
                                     snapshot.insert(1, "Saved at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                    snapshot["REPORTING_MONTH"] = rm_out
                                     st.session_state.scorecard_saved_snapshots.append(snapshot)
                                     st.success("Scorecard snapshot saved.")
 
@@ -3188,6 +3535,213 @@ if file:
                                         st.caption("No peer risk data available for this department.")
                                 else:
                                     st.caption("Department not available for selected employee.")
+
+    # =========================================================
+    # 📈 MR PRODUCTIVITY MONITORING
+    # =========================================================
+    if page == "📈 MR Productivity Monitoring":
+        st.title("📈 MR Productivity Monitoring")
+        st.caption(
+            "Pulls **FTM weighted result** from snapshots saved under **Employee Scorecard Monitoring**. "
+            "Each row is one reporting month per employee (latest snapshot wins if you save twice for the same month)."
+        )
+        if MR_PRODUCTIVITY_SAMPLE_PATH.is_file():
+            with st.expander("MR Productivity sample workbook (`MR Productivity_Sample Data.xlsx`)", expanded=False):
+                st.caption(f"Local file: `{MR_PRODUCTIVITY_SAMPLE_PATH}` — reference layout / production fields (not auto-imported into the MR table).")
+                try:
+                    _mr_prev = pd.read_excel(MR_PRODUCTIVITY_SAMPLE_PATH, sheet_name="Sheet1", header=2)
+                    st.dataframe(_mr_prev.head(40), use_container_width=True, height=480)
+                except Exception as _ex:
+                    st.warning(f"Could not read sample Sheet1 (header row 3): {_ex}")
+        if PIP_FORM_TEMPLATE_PATH.is_file():
+            st.success("PIP Word export will use your template **PIP_Form Revised.docx** in this folder.")
+        ep_global = st.number_input(
+            "Default Expected Production (EP) %",
+            min_value=1.0,
+            max_value=500.0,
+            value=100.0,
+            step=1.0,
+            key="mr_ep_global",
+            help="FTM weighted result is compared to EP (100 = full expected production). "
+            "If HR DATABASE has EP / Expected Production column, it overrides this per employee.",
+        )
+        if col_ep:
+            st.caption(f"Per-employee EP detected: **{col_ep}** (when cell is numeric and non-zero).")
+
+        snaps = st.session_state.get("scorecard_saved_snapshots") or []
+        monthly_src = _scorecard_snapshots_to_monthly_ftm(snaps)
+        if monthly_src.empty:
+            st.warning(
+                "No usable scorecard snapshots yet. Open **Employee Scorecard Monitoring**, **Compute scorecard**, "
+                "confirm **Reporting month (YYYY-MM)**, then **Save scorecard snapshot**. "
+                "Repeat for multiple months to evaluate rolling PIP rules."
+            )
+        else:
+
+            def _mr_ep_lookup(emp_name: str) -> float:
+                if not col_name or df.empty:
+                    return float(ep_global)
+                hit = df[df[col_name].astype(str).str.strip() == str(emp_name).strip()]
+                if hit.empty or not col_ep or col_ep not in df.columns:
+                    return float(ep_global)
+                v = pd.to_numeric(hit.iloc[-1][col_ep], errors="coerce")
+                if pd.isna(v) or float(v) == 0:
+                    return float(ep_global)
+                return float(v)
+
+            enriched_parts = []
+            for emp, sub in monthly_src.groupby("Employee"):
+                enriched_parts.append(_enrich_mr_productivity_monthly(sub.copy(), _mr_ep_lookup(emp)))
+            full_m = pd.concat(enriched_parts, ignore_index=True) if enriched_parts else pd.DataFrame()
+
+            st.markdown("#### Monthly results & PIP logic")
+            show_cols = [
+                "Employee",
+                "YearMonthStr",
+                "FTM_WEIGHTED_RESULT",
+                "EP_ref",
+                "Pct_of_EP",
+                "MR_Band",
+                "Below_Standard",
+                "PIP_Trigger",
+                "PIP_3Mo_Review",
+                "Second_PIP_Within_12mo_Terminate",
+            ]
+            disp = full_m[[c for c in show_cols if c in full_m.columns]].copy()
+            st.dataframe(disp, use_container_width=True, hide_index=True)
+
+            st.markdown("#### Policy reference")
+            st.markdown(
+                """
+- **Above Standard:** ≥ 100% of EP → **Retain**
+- **Within Standard:** 80%–99% of EP → **Developmental coaching & training**
+- **Below Standard:** < 80% of EP → **PIP trigger + corrective coaching**
+- **PIP trigger:** **2 consecutive** months below standard **or** **2 of the last 3** months below (rolling)
+- **PIP duration / review window:** the **next 3 consecutive months** in this timeline (after a trigger row)
+- **PIP exit:** at least **2 of those 3** months must be **Within Standard or better**; otherwise **terminate**
+- **Second PIP trigger within 12 months:** **terminate**
+"""
+            )
+
+            c_mr1, c_mr2, c_mr3 = st.columns(3)
+            with c_mr1:
+                st.download_button(
+                    "Download CSV (MR table)",
+                    data=disp.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="mr_productivity_monitoring.csv",
+                    mime="text/csv",
+                    key="mr_csv_dl",
+                )
+            with c_mr2:
+                xbio = BytesIO()
+                try:
+                    with pd.ExcelWriter(xbio, engine="openpyxl") as writer:
+                        full_m.to_excel(writer, sheet_name="MR_Productivity", index=False)
+                    xbio.seek(0)
+                    st.download_button(
+                        "Download Excel (MR table)",
+                        data=xbio.getvalue(),
+                        file_name="mr_productivity_monitoring.xlsx",
+                        key="mr_xlsx_dl",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                except ImportError:
+                    st.caption("Install **openpyxl** for Excel export (`pip install openpyxl`).")
+            with c_mr3:
+                if HAS_PYTHON_DOCX:
+                    ep_note = f"default {ep_global:.1f}%"
+                    if col_ep:
+                        ep_note += f"; column **{col_ep}** when set per employee"
+                    wdoc = _build_mr_productivity_sample_docx(disp, ep_note)
+                    st.download_button(
+                        "Download Word — MR summary (form style)",
+                        data=wdoc.getvalue(),
+                        file_name="MR_Productivity_Monitoring_Summary.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="mr_word_summary",
+                    )
+                else:
+                    st.caption("Install **python-docx** for Word export.")
+
+            st.markdown("#### PIP form (fill-style Word)")
+            emp_picks = sorted(full_m["Employee"].dropna().unique().tolist()) if not full_m.empty else []
+            if emp_picks and HAS_PYTHON_DOCX:
+                pick_pip = st.selectbox("Employee for PIP form export", emp_picks, key="mr_pip_form_emp")
+                sub_p = full_m[full_m["Employee"] == pick_pip].sort_values("Year-Month")
+                last_r = sub_p.iloc[-1]
+                dept_v, pos_v, branch_v, date_hired_v = "", "", "", ""
+                if col_name and pick_pip and not df.empty:
+                    er = df[df[col_name].astype(str).str.strip() == str(pick_pip).strip()]
+                    if not er.empty:
+                        lr = er.iloc[-1]
+                        if col_dept and col_dept in df.columns:
+                            dept_v = str(lr.get(col_dept, "") or "")
+                        if col_position and col_position in df.columns:
+                            pos_v = str(lr.get(col_position, "") or "")
+                        if col_branch and col_branch in df.columns:
+                            branch_v = str(lr.get(col_branch, "") or "")
+                        if col_hire_date and col_hire_date in df.columns:
+                            hd = lr.get(col_hire_date)
+                            if pd.notna(hd):
+                                date_hired_v = str(hd)[:19]
+                trig_basis = []
+                if last_r.get("PIP_Trigger"):
+                    trig_basis.append("Rule fired on this row (2 consecutive below or 2 of last 3 below).")
+                if last_r.get("Below_Standard"):
+                    trig_basis.append("Month classified below standard vs EP.")
+                hist_ftm = []
+                for _, rr in sub_p.tail(3).iterrows():
+                    hist_ftm.append(f"{float(rr['FTM_WEIGHTED_RESULT']):.2f}%")
+                while len(hist_ftm) < 3:
+                    hist_ftm.insert(0, "—")
+                ym = last_r.get("Year-Month")
+                try:
+                    pip_from = str(ym)
+                    pip_to = str(ym + 2)
+                except Exception:
+                    pip_from = str(last_r.get("YearMonthStr", ""))
+                    pip_to = ""
+                ctx = {
+                    "dept": dept_v,
+                    "department": dept_v,
+                    "position": pos_v,
+                    "branch": " / ".join(x for x in [dept_v, branch_v] if x),
+                    "date_hired": date_hired_v,
+                    "manager": "",
+                    "pip_enrollment": datetime.now().strftime("%Y-%m-%d"),
+                    "pip_from": pip_from,
+                    "pip_to": pip_to,
+                    "month": str(last_r.get("YearMonthStr", "")),
+                    "ftm": f"{float(last_r.get('FTM_WEIGHTED_RESULT', 0)):.2f}",
+                    "ep": f"{float(last_r.get('EP_ref', ep_global)):.1f}",
+                    "pct_ep": f"{float(last_r.get('Pct_of_EP', 0)):.1f}",
+                    "band": str(last_r.get("MR_Band", "")),
+                    "trigger_basis": " ".join(trig_basis) if trig_basis else " _________________________ ",
+                    "month1_prod": hist_ftm[0],
+                    "month2_prod": hist_ftm[1],
+                    "month3_prod": hist_ftm[2],
+                }
+                _calc_pack = st.session_state.get("scorecard_calc_cache", {}).get(f"sc::{pick_pip}")
+                _calc_df = _calc_pack.get("calc") if isinstance(_calc_pack, dict) else None
+                pip_doc = _build_pip_form_docx(pick_pip, ctx, _calc_df)
+                st.download_button(
+                    "Download PIP form (Word)",
+                    data=pip_doc.getvalue(),
+                    file_name=f"PIP_Form_{pick_pip.replace(' ', '_')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="mr_pip_word",
+                )
+                if PIP_FORM_TEMPLATE_PATH.is_file():
+                    st.caption(
+                        "Opens your **PIP_Form Revised.docx** layout: header table, production lines, "
+                        "and scorecard grid (if you computed the scorecard for this employee in this session)."
+                    )
+                else:
+                    st.caption("Add **PIP_Form Revised.docx** next to `hrapp.py` to use your official template.")
+            elif not emp_picks:
+                pass
+            else:
+                st.info("Install **python-docx** for PIP Word export: `pip install python-docx`")
 
     # =========================================================
     # 🧠 EXECUTIVE STORY
