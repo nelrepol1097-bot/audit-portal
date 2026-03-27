@@ -24,7 +24,6 @@ except ImportError:
 
 st.set_page_config(layout="wide")
 
-# Project folder (holds PIP_Form Revised.docx, MR Productivity_Sample Data.xlsx, etc.)
 HR_APP_DIR = Path(__file__).resolve().parent
 PIP_FORM_TEMPLATE_PATH = HR_APP_DIR / "PIP_Form Revised.docx"
 MR_PRODUCTIVITY_SAMPLE_PATH = HR_APP_DIR / "MR Productivity_Sample Data.xlsx"
