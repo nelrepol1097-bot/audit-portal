@@ -205,7 +205,13 @@ def build_report_period_trend_table(df: pd.DataFrame) -> pd.DataFrame | None:
 
 def _norm_position_for_trend_match(s: str) -> str:
     t = re.sub(r"\s+", " ", str(s).strip()).casefold()
-    t = t.replace("ofiice", "office").replace("–", "-").replace("—", "-")
+    # Normalize common spelling / wording variants for OIC roles etc.
+    t = (
+        t.replace("ofiice", "office")
+        .replace("officer", "office")
+        .replace("–", "-")
+        .replace("—", "-")
+    )
     return t
 
 
@@ -214,7 +220,7 @@ _OVERVIEW_UDI_POSITION_TREND_LABELS: list[str] = [
     "Area Head",
     "Assistant Area Head",
     "Marketing Representative",
-    "Office in Charge for Control",
+    "Officer in Charge for Control",
     "Officer in Charge for Operations",
     "TeleMarketer",
     "Training Leader - Trainee",
@@ -1695,7 +1701,7 @@ with tab_overview:
             )
             st.caption(
                 "Sum of **TOTAL_UDI** by **Report Period** and role: Area Head, Assistant Area Head, Marketing Representative, "
-                "Officer in Charge for Control, Officer in Charge for Operations, TeleMarketer, Training Leader — Trainee. "
+                "Office in Charge for Control, Officer in Charge for Operations, TeleMarketer, Training Leader — Trainee. "
                 "**Position** sidebar filter does **not** apply to this chart (so every key role appears); "
                 "other slicers still apply. Labels are matched to these roles (typos such as *Ofiice* are normalized)."
             )
