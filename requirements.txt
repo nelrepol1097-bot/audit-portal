@@ -9,3 +9,5 @@ streamlit-autorefresh
 streamlit-plotly-events
 scikit-learn
 openpyxl
+scipy
+stasmodels
