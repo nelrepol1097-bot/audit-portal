@@ -10,4 +10,4 @@ streamlit-plotly-events
 scikit-learn
 openpyxl
 scipy
-stasmodels
+statsmodels
