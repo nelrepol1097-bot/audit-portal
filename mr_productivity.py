@@ -1030,6 +1030,7 @@ st.markdown(
     html, body, .stApp { font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
     div[data-testid="stMetricValue"] { font-size: 1.65rem; }
     .exec-sub { color: #5c6370; font-size: 0.95rem; margin-top: -0.35rem; }
+
     .pivot-filters {
       background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
       border: 1px solid #e2e8f0;
@@ -1045,12 +1046,121 @@ st.markdown(
       color: #0f172a;
       margin: 0.5rem 0 0.1rem 0;
     }
+
+    /* Tabs as rounded boxes with logo badge */
+    div[data-testid="stTabs"] > div[role="tablist"] {
+      gap: 0.45rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    /* each tab = boxed button */
+    div[data-testid="stTabs"] [role="tab"] {
+      font-size: 1.02rem;
+      padding: 0.55rem 1.15rem;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background-color: #f8fafc;
+      color: #475569;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease,
+                  border-color 0.15s ease, transform 0.08s ease,
+                  box-shadow 0.15s ease;
+    }
+
+    div[data-testid="stTabs"] [role="tab"]:hover {
+      background-color: #eef2ff;
+      border-color: #c7d2fe;
+      transform: translateY(-1px);
+    }
+
+    /* active tab */
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+      background: linear-gradient(135deg,#1d4ed8,#2563eb);
+      color: #f9fafb;
+      border-color: #1d4ed8;
+      box-shadow: 0 6px 14px rgba(37,99,235,0.25);
+    }
+
+    div[data-testid="stTabs"] [role="tab"] p {
+      margin-bottom: 0;
+    }
+
+    /* small square logo before label */
+    div[data-testid="stTabs"] [role="tab"]::before {
+      content: "";
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      margin-right: 0.5rem;
+      box-shadow: 0 0 0 1px rgba(148,163,184,0.7);
+      background: #cbd5e1;
+      transition: box-shadow 0.15s ease, transform 0.08s ease, background 0.15s ease;
+    }
+
+    /* selected tab logo glow */
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"]::before {
+      box-shadow: 0 0 0 2px rgba(248,250,252,0.9);
+      transform: scale(1.08);
+    }
+
+    /* different logo color per pane (order: Goals, Overview, Statistics, Visualizations, Advanced) */
+    div[data-testid="stTabs"] [role="tab"]:nth-child(1)::before { background: linear-gradient(135deg,#1d4ed8,#38bdf8); }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(2)::before { background: linear-gradient(135deg,#16a34a,#a3e635); }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(3)::before { background: linear-gradient(135deg,#eab308,#f97316); }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(4)::before { background: linear-gradient(135deg,#7c3aed,#a855f7); }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(5)::before { background: linear-gradient(135deg,#0f172a,#64748b); }
+
+    /* App logo + title row */
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin-bottom: 0.35rem;
+      margin-top: 0.1rem;
+    }
+    .app-logo-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 60%, #22c55e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #f9fafb;
+      font-weight: 700;
+      font-size: 1.05rem;
+      box-shadow: 0 6px 16px rgba(15,23,42,0.35);
+    }
+    .app-header-title {
+      display: flex;
+      flex-direction: column;
+    }
+    .app-header-title h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      letter-spacing: -0.01em;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-st.title("MR PRODUCTIVITY REPORT")
-st.markdown('<p class="exec-sub">Interactive view from Excel — performance vs. your targets by week, month, or year.</p>', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="app-header">
+      <div class="app-logo-circle">MR</div>
+      <div class="app-header-title">
+        <h1>MR PRODUCTIVITY REPORT</h1>
+        <p class="exec-sub">
+          Interactive view from Excel — performance vs. your targets by week, month, or year.
+        </p>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
     st.header("Data source")
