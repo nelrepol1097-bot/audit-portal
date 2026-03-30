@@ -1695,7 +1695,7 @@ with tab_overview:
             )
             st.caption(
                 "Sum of **TOTAL_UDI** by **Report Period** and role: Area Head, Assistant Area Head, Marketing Representative, "
-                "Office in Charge for Control, Officer in Charge for Operations, TeleMarketer, Training Leader — Trainee. "
+                "Officer in Charge for Control, Officer in Charge for Operations, TeleMarketer, Training Leader — Trainee. "
                 "**Position** sidebar filter does **not** apply to this chart (so every key role appears); "
                 "other slicers still apply. Labels are matched to these roles (typos such as *Ofiice* are normalized)."
             )
