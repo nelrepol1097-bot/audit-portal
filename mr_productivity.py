@@ -1025,9 +1025,30 @@ def _goals_state_key(sheet: str, value_col: str, freq: str) -> str:
     return f"goals_targets::{sheet}::{value_col}::{freq}"
 
 
-def _image_file_to_data_uri(path: Path) -> str:
+def _find_asset_file(name: str) -> Path | None:
+    """Resolve icon file by stem across common run locations."""
+    target_stem = Path(name).stem.casefold()
+    allowed_ext = {".jpg", ".jpeg", ".png", ".webp"}
+    dirs = [Path(__file__).resolve().parent, Path.cwd()]
+    seen: set[str] = set()
+    for d in dirs:
+        key = str(d.resolve()) if d.exists() else str(d)
+        if key in seen or not d.exists() or not d.is_dir():
+            continue
+        seen.add(key)
+        for p in d.iterdir():
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in allowed_ext:
+                continue
+            if p.stem.casefold() == target_stem:
+                return p
+    return None
+
+
+def _image_file_to_data_uri(path: Path | None) -> str:
     """Inline local logo files in CSS (portable across Streamlit sessions)."""
-    if not path.is_file():
+    if path is None or not path.is_file():
         return ""
     try:
         raw = path.read_bytes()
@@ -1065,11 +1086,11 @@ st.set_page_config(
 
 _ASSET_DIR = Path(__file__).resolve().parent
 _TAB_ICON_URIS = [
-    _image_file_to_data_uri(_ASSET_DIR / "GoalPerformance.jpg"),
-    _image_file_to_data_uri(_ASSET_DIR / "Overview.jpg"),
-    _image_file_to_data_uri(_ASSET_DIR / "statistic.jpg"),
-    _image_file_to_data_uri(_ASSET_DIR / "visualization.jpg"),
-    _image_file_to_data_uri(_ASSET_DIR / "Advanced.jpg"),
+    _image_file_to_data_uri(_find_asset_file("GoalPerformance")),
+    _image_file_to_data_uri(_find_asset_file("Overview")),
+    _image_file_to_data_uri(_find_asset_file("statistic")),
+    _image_file_to_data_uri(_find_asset_file("visualization")),
+    _image_file_to_data_uri(_find_asset_file("Advanced")),
 ]
 
 st.markdown(
@@ -1160,13 +1181,6 @@ st.markdown(
       transform: scale(1.08);
       filter: saturate(1.12) brightness(1.02);
     }
-
-    /* optional glyphs per pane for quicker scanning */
-    div[data-testid="stTabs"] [role="tab"]:nth-child(1)::before { content: "G"; }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(2)::before { content: "O"; }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(3)::before { content: "S"; }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(4)::before { content: "V"; }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(5)::before { content: "A"; }
 
     /* App logo + title row */
     .app-header {
@@ -1698,17 +1712,14 @@ with tab_overview:
         if not periods_ov:
             st.warning("No valid **Report Period** values after filtering.")
         else:
-            h1, h2 = st.columns([1, 1])
-            with h1:
-                st.subheader("Overview")
-            with h2:
-                ov_period = st.selectbox(
-                    "Report period",
-                    periods_ov,
-                    index=len(periods_ov) - 1,
-                    key=f"ov_period_{_sk}",
-                    help="KPIs and tables below use this month plus sidebar slicers.",
-                )
+            st.subheader("Overview")
+            # Use sidebar Report Period only (no duplicate in-page dropdown).
+            if sel_report_periods:
+                _sel_clean = [str(x).strip() for x in sel_report_periods]
+                _matches = [p for p in periods_ov if str(p).strip() in _sel_clean]
+                ov_period = _matches[-1] if _matches else periods_ov[-1]
+            else:
+                ov_period = periods_ov[-1]
 
             df_ov = slice_period_and_production(df, ov_period, None)
             kpi = compute_overview_kpis(df_ov)
