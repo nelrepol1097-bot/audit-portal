@@ -163,6 +163,55 @@ def compute_overview_kpis(sub: pd.DataFrame) -> dict[str, int | float | None]:
     return out
 
 
+def _overview_prev_period_kpi_context(
+    d: pd.DataFrame,
+    current_period: str,
+) -> tuple[str | None, dict[str, int | float | None]]:
+    """Previous report period label + KPI dict for period-over-period deltas."""
+    empty_kpi: dict[str, int | float | None] = {
+        "active": None,
+        "inactive": None,
+        "wp_yes": None,
+        "wp_no": None,
+        "kb": None,
+        "referral": None,
+        "field_sat": None,
+        "fb": None,
+    }
+    if "Report Period" not in d.columns or d.empty:
+        return None, empty_kpi
+
+    rp = d["Report Period"].astype(str).str.strip()
+    uniq = pd.Series(list(dict.fromkeys(rp.tolist())), dtype="object")
+    dts = _parse_report_period_series(uniq)
+    if dts.isna().all():
+        return None, empty_kpi
+
+    ordered = pd.DataFrame({"rp": uniq.astype(str), "dt": dts})
+    ordered = ordered.sort_values("dt").drop_duplicates(subset=["rp"], keep="last").reset_index(drop=True)
+    cur = str(current_period).strip()
+    if cur not in set(ordered["rp"].astype(str)):
+        return None, empty_kpi
+    cur_ix = int(ordered.index[ordered["rp"].astype(str) == cur][0])
+    if cur_ix <= 0:
+        return None, empty_kpi
+
+    prev_period = str(ordered.iloc[cur_ix - 1]["rp"]).strip()
+    prev_df = slice_period_and_production(d, prev_period, None)
+    return prev_period, compute_overview_kpis(prev_df)
+
+
+def _fmt_kpi_delta(current: int | float | None, previous: int | float | None) -> str | None:
+    if current is None or previous is None:
+        return None
+    try:
+        c = float(current)
+        p = float(previous)
+    except (TypeError, ValueError):
+        return None
+    return f"{c - p:+,.0f} vs prev month"
+
+
 def build_report_period_trend_table(df: pd.DataFrame) -> pd.DataFrame | None:
     """Sum key metrics by Report Period, sorted in calendar order (for trend line charts)."""
     if "Report Period" not in df.columns or df.empty:
@@ -1874,10 +1923,28 @@ with tab_overview:
 
             df_ov = slice_period_and_production(df, ov_period, None)
             kpi = compute_overview_kpis(df_ov)
+
+            # For period-over-period comparison, ignore the Report Period slicer
+            # but respect all other sidebar filters so we can still see the
+            # true previous month even when a single period is selected.
+            _df_prev_base = apply_app_slicers(
+                _df_pre_slicers,
+                report_periods=None,
+                positions=sel_pos_sl or None,
+                names=sel_names_sl or None,
+                active_statuses=sel_act_sl or None,
+                tenure_brackets=sel_ten_sl or None,
+                employment_statuses=sel_emp_sl or None,
+                branches=sel_br_sl or None,
+                branch_column=_br_col_sl,
+            )
+            prev_period_ov, prev_kpi = _overview_prev_period_kpi_context(_df_prev_base, ov_period)
             st.caption(
                 f"KPIs for **{ov_period}** · {len(df_ov):,} rows in view (sidebar filters applied). "
                 "Change slicers or period to refresh."
             )
+            if prev_period_ov is not None:
+                st.caption(f"Period comparison is against previous month: **{prev_period_ov}**.")
             with st.expander("Definitions: Total Count vs TOTAL UDI", expanded=False):
                 st.markdown(_OVERVIEW_METRIC_DEFINITIONS_MD)
             m1, m2, m3, m4 = st.columns(4)
@@ -1885,35 +1952,55 @@ with tab_overview:
                 st.metric(
                     "Active employees",
                     f"{kpi['active']:,}" if kpi["active"] is not None else "—",
+                    delta=_fmt_kpi_delta(kpi.get("active"), prev_kpi.get("active")),
                 )
             with m2:
                 st.metric(
                     "Inactive / other status",
                     f"{kpi['inactive']:,}" if kpi["inactive"] is not None else "—",
+                    delta=_fmt_kpi_delta(kpi.get("inactive"), prev_kpi.get("inactive")),
                 )
             with m3:
                 st.metric(
                     "With production",
                     f"{kpi['wp_yes']:,}" if kpi["wp_yes"] is not None else "—",
+                    delta=_fmt_kpi_delta(kpi.get("wp_yes"), prev_kpi.get("wp_yes")),
                 )
             with m4:
                 st.metric(
                     "No production",
                     f"{kpi['wp_no']:,}" if kpi["wp_no"] is not None else "—",
+                    delta=_fmt_kpi_delta(kpi.get("wp_no"), prev_kpi.get("wp_no")),
                 )
             u1, u2, u3, u4 = st.columns(4)
             with u1:
                 v = kpi["kb"]
-                st.metric("UDI / KB (sum)", f"{v:,.0f}" if v is not None else "—")
+                st.metric(
+                    "UDI / KB (sum)",
+                    f"{v:,.0f}" if v is not None else "—",
+                    delta=_fmt_kpi_delta(v, prev_kpi.get("kb")),
+                )
             with u2:
                 v = kpi["referral"]
-                st.metric("Referral (sum)", f"{v:,.0f}" if v is not None else "—")
+                st.metric(
+                    "Referral (sum)",
+                    f"{v:,.0f}" if v is not None else "—",
+                    delta=_fmt_kpi_delta(v, prev_kpi.get("referral")),
+                )
             with u3:
                 v = kpi["field_sat"]
-                st.metric("Field saturation (sum)", f"{v:,.0f}" if v is not None else "—")
+                st.metric(
+                    "Field saturation (sum)",
+                    f"{v:,.0f}" if v is not None else "—",
+                    delta=_fmt_kpi_delta(v, prev_kpi.get("field_sat")),
+                )
             with u4:
                 v = kpi["fb"]
-                st.metric("FB support (sum)", f"{v:,.0f}" if v is not None else "—")
+                st.metric(
+                    "FB support (sum)",
+                    f"{v:,.0f}" if v is not None else "—",
+                    delta=_fmt_kpi_delta(v, prev_kpi.get("fb")),
+                )
 
             st.divider()
             st.markdown(
