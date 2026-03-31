@@ -8,6 +8,7 @@ Run from this folder (not `python app.py`):
 from __future__ import annotations
 
 import io
+import base64
 import re
 import sys
 from pathlib import Path
@@ -1024,11 +1025,52 @@ def _goals_state_key(sheet: str, value_col: str, freq: str) -> str:
     return f"goals_targets::{sheet}::{value_col}::{freq}"
 
 
+def _image_file_to_data_uri(path: Path) -> str:
+    """Inline local logo files in CSS (portable across Streamlit sessions)."""
+    if not path.is_file():
+        return ""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    b64 = base64.b64encode(raw).decode("ascii")
+    ext = path.suffix.lower()
+    mime = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png" if ext == ".png" else "application/octet-stream"
+    return f"data:{mime};base64,{b64}"
+
+
+def _tab_icon_rule(tab_idx: int, data_uri: str) -> str:
+    """Per-tab logo override for the badge pseudo-element."""
+    if not data_uri:
+        return ""
+    return (
+        f'div[data-testid="stTabs"] [role="tab"]:nth-child({tab_idx})::before '
+        "{"
+        ' content: "";'
+        f" background-image: url('{data_uri}');"
+        " background-size: cover;"
+        " background-position: center;"
+        " background-repeat: no-repeat;"
+        " color: transparent;"
+        " font-size: 0;"
+        "}"
+    )
+
+
 st.set_page_config(
     page_title="MR PRODUCTIVITY REPORT",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+_ASSET_DIR = Path(__file__).resolve().parent
+_TAB_ICON_URIS = [
+    _image_file_to_data_uri(_ASSET_DIR / "GoalPerformance.jpg"),
+    _image_file_to_data_uri(_ASSET_DIR / "Overview.jpg"),
+    _image_file_to_data_uri(_ASSET_DIR / "statistic.jpg"),
+    _image_file_to_data_uri(_ASSET_DIR / "visualization.jpg"),
+    _image_file_to_data_uri(_ASSET_DIR / "Advanced.jpg"),
+]
 
 st.markdown(
     """
@@ -1093,31 +1135,38 @@ st.markdown(
       margin-bottom: 0;
     }
 
-    /* small square logo before label */
+    /* mini logo badge before each tab label */
     div[data-testid="stTabs"] [role="tab"]::before {
-      content: "";
+      content: "MR";
       display: inline-block;
-      width: 14px;
-      height: 14px;
-      border-radius: 4px;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
       margin-right: 0.5rem;
-      box-shadow: 0 0 0 1px rgba(148,163,184,0.7);
-      background: #cbd5e1;
-      transition: box-shadow 0.15s ease, transform 0.08s ease, background 0.15s ease;
+      background: radial-gradient(circle at 30% 25%, #38bdf8 0%, #1d4ed8 55%, #0f172a 100%);
+      color: #f8fafc;
+      font-size: 0.58rem;
+      font-weight: 700;
+      line-height: 22px;
+      text-align: center;
+      letter-spacing: 0.02em;
+      box-shadow: 0 0 0 1px rgba(15,23,42,0.25), 0 2px 6px rgba(15,23,42,0.25);
+      transition: box-shadow 0.15s ease, transform 0.08s ease, filter 0.15s ease;
     }
 
     /* selected tab logo glow */
     div[data-testid="stTabs"] [role="tab"][aria-selected="true"]::before {
       box-shadow: 0 0 0 2px rgba(248,250,252,0.9);
       transform: scale(1.08);
+      filter: saturate(1.12) brightness(1.02);
     }
 
-    /* different logo color per pane (order: Goals, Overview, Statistics, Visualizations, Advanced) */
-    div[data-testid="stTabs"] [role="tab"]:nth-child(1)::before { background: linear-gradient(135deg,#1d4ed8,#38bdf8); }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(2)::before { background: linear-gradient(135deg,#16a34a,#a3e635); }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(3)::before { background: linear-gradient(135deg,#eab308,#f97316); }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(4)::before { background: linear-gradient(135deg,#7c3aed,#a855f7); }
-    div[data-testid="stTabs"] [role="tab"]:nth-child(5)::before { background: linear-gradient(135deg,#0f172a,#64748b); }
+    /* optional glyphs per pane for quicker scanning */
+    div[data-testid="stTabs"] [role="tab"]:nth-child(1)::before { content: "G"; }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(2)::before { content: "O"; }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(3)::before { content: "S"; }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(4)::before { content: "V"; }
+    div[data-testid="stTabs"] [role="tab"]:nth-child(5)::before { content: "A"; }
 
     /* App logo + title row */
     .app-header {
@@ -1153,6 +1202,16 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+_tab_icon_css = "\n".join(_tab_icon_rule(i + 1, uri) for i, uri in enumerate(_TAB_ICON_URIS) if uri)
+if _tab_icon_css:
+    st.markdown(
+        f"""
+        <style>
+        {_tab_icon_css}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 st.markdown(
     """
     <div class="app-header">
@@ -1712,13 +1771,8 @@ with tab_overview:
                 _rp_card_order = list(dict.fromkeys(_udi_pos_trend["Report Period"].astype(str).tolist()))
 
                 with st.container(border=True):
-                    st.caption("Interactive **value cards** — choose the month; Δ compares to the prior month in the chart.")
-                    _card_rp = st.selectbox(
-                        "Report period (value cards)",
-                        _rp_card_order,
-                        index=len(_rp_card_order) - 1,
-                        key=f"udi_trend_card_rp_{_sk}",
-                    )
+                    st.caption("Interactive **value cards** — follows the selected Overview report period; Δ compares to prior month.")
+                    _card_rp = str(ov_period) if str(ov_period) in _rp_card_order else _rp_card_order[-1]
                     _sub_card = _udi_pos_trend.loc[_udi_pos_trend["Report Period"].astype(str) == str(_card_rp)]
                     _prev_ix = _rp_card_order.index(_card_rp) - 1 if _card_rp in _rp_card_order else -1
                     _prev_rp = _rp_card_order[_prev_ix] if _prev_ix >= 0 else None
