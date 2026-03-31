@@ -62,12 +62,12 @@ def _sidebar_slicer_values(
     if default_multi is None:
         default_multi = []
     if not options:
-        st.sidebar.caption(f"_(No values: {label})_")
+        st.caption(f"_(No values: {label})_")
         return []
     if use_multi:
-        return st.sidebar.multiselect(label, options, default=default_multi, key=widget_key)
+        return st.multiselect(label, options, default=default_multi, key=widget_key)
     all_lbl = "— All —"
-    pick = st.sidebar.selectbox(label, [all_lbl] + list(options), key=widget_key + "_single")
+    pick = st.selectbox(label, [all_lbl] + list(options), key=widget_key + "_single")
     return [] if pick == all_lbl else [pick]
 
 
@@ -1212,6 +1212,149 @@ st.markdown(
       font-size: 1.6rem;
       letter-spacing: -0.01em;
     }
+
+    /* Sidebar: enterprise animated slicers */
+    [data-testid="stSidebar"] {
+      background:
+        radial-gradient(1200px 300px at 10% -10%, rgba(37,99,235,0.10), transparent 55%),
+        linear-gradient(180deg, #f8fbff 0%, #f2f6fb 100%);
+    }
+
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] label {
+      transition: color 0.2s ease;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+      border-radius: 12px !important;
+      border: 1px solid #d7e3f1 !important;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255,255,255,0.9);
+      transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.16s ease, background 0.22s ease;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"] > div:hover {
+      transform: translateY(-1px);
+      border-color: #7fb2ff !important;
+      box-shadow: 0 10px 20px rgba(29, 78, 216, 0.13);
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"] input:focus,
+    [data-testid="stSidebar"] [data-baseweb="select"] input:focus-visible {
+      outline: none !important;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"]:focus-within > div {
+      border-color: #1d4ed8 !important;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2), 0 10px 24px rgba(37, 99, 235, 0.22) !important;
+      transform: translateY(-1px);
+      animation: slicerPulse 1.25s ease-out;
+    }
+
+    @keyframes slicerPulse {
+      0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.32); }
+      100% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0.0); }
+    }
+
+    /* Multiselect chips */
+    [data-testid="stSidebar"] [data-baseweb="tag"] {
+      border-radius: 999px !important;
+      border: 1px solid rgba(29, 78, 216, 0.28) !important;
+      background: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%) !important;
+      color: #fff !important;
+      box-shadow: 0 5px 12px rgba(29, 78, 216, 0.26);
+      transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
+      animation: chipIn 0.22s ease-out;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="tag"]:hover {
+      transform: translateY(-1px);
+      filter: saturate(1.08);
+      box-shadow: 0 9px 18px rgba(29, 78, 216, 0.34);
+    }
+
+    @keyframes chipIn {
+      from { opacity: 0; transform: translateY(5px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Select all branches button */
+    [data-testid="stSidebar"] button[kind="secondary"] {
+      border-radius: 10px !important;
+      transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    [data-testid="stSidebar"] button[kind="secondary"]:hover {
+      transform: translateY(-1px);
+      border-color: #93c5fd !important;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+    }
+
+    /* Dropdown list highlight (selected + hover) */
+    [data-testid="stSidebar"] [role="listbox"] [role="option"][aria-selected="true"] {
+      background: linear-gradient(90deg, rgba(37,99,235,0.14), rgba(14,165,233,0.12)) !important;
+      border-left: 3px solid #2563eb !important;
+    }
+
+    [data-testid="stSidebar"] [role="listbox"] [role="option"]:hover {
+      background: rgba(148, 163, 184, 0.18) !important;
+    }
+
+    /* Expander headers for collapsible slicers */
+    [data-testid="stSidebar"] [data-testid="stExpander"] details {
+      border: 1px solid #d8e4f3 !important;
+      border-radius: 12px !important;
+      background: linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(249,252,255,0.97) 100%);
+      margin-bottom: 0.35rem;
+      overflow: hidden;
+      transition: box-shadow 0.22s ease, border-color 0.22s ease, transform 0.16s ease;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details summary {
+      position: relative;
+      min-height: 2.4rem;
+      display: flex;
+      align-items: center;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      color: #0f172a;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details summary::after {
+      content: "";
+      position: absolute;
+      right: 0.55rem;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid #64748b;
+      border-bottom: 2px solid #64748b;
+      transform: translateY(-62%) rotate(45deg);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      pointer-events: none;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details[open] summary::after {
+      transform: translateY(-34%) rotate(-135deg);
+      border-color: #1d4ed8;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details:hover {
+      transform: translateY(-1px);
+      border-color: #8cbafc !important;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.10);
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
+      border-color: #60a5fa !important;
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.16), 0 10px 24px rgba(29, 78, 216, 0.18);
+      animation: expanderIn 0.22s ease-out;
+    }
+
+    @keyframes expanderIn {
+      from { transform: translateY(3px); opacity: 0.92; }
+      to { transform: translateY(0); opacity: 1; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1338,7 +1481,7 @@ _sk = f"sl_{analysis_sheet}_{_fl_tag}_{len(df.columns)}"
 with st.sidebar:
     st.divider()
     st.header("Slicers / filters")
-    st.caption("Nothing selected = **All** for that field. Multi = many; Single = one.")
+    st.caption("Click a filter name to open choices. All slicers are collapsed by default.")
 
     use_multi = st.radio(
         "Slicer style",
@@ -1352,85 +1495,93 @@ with st.sidebar:
     sel_report_periods: list[str] = []
     if "Report Period" in df.columns:
         rp_opts = sorted(df["Report Period"].dropna().astype(str).unique())
-        sel_report_periods = _sidebar_slicer_values(
-            "Report Period",
-            rp_opts,
-            widget_key=f"sl_rp_{_sk}",
-            use_multi=multi_mode,
-        )
+        with st.expander("Report Period", expanded=False):
+            sel_report_periods = _sidebar_slicer_values(
+                "Choose options",
+                rp_opts,
+                widget_key=f"sl_rp_{_sk}",
+                use_multi=multi_mode,
+            )
 
     sel_pos_sl: list[str] = []
     if "position" in df.columns:
         po = sorted(df["position"].fillna("(blank)").astype(str).unique())
         mr_def = [p for p in ["Marketing Representative"] if p in po]
-        sel_pos_sl = _sidebar_slicer_values(
-            "Position",
-            po,
-            widget_key=f"sl_pos_{_sk}",
-            use_multi=multi_mode,
-            default_multi=mr_def if multi_mode else None,
-        )
+        with st.expander("Position", expanded=False):
+            sel_pos_sl = _sidebar_slicer_values(
+                "Choose options",
+                po,
+                widget_key=f"sl_pos_{_sk}",
+                use_multi=multi_mode,
+                default_multi=mr_def if multi_mode else None,
+            )
 
     sel_names_sl: list[str] = []
     if "correct_name" in df.columns:
         nm = sorted(df["correct_name"].dropna().astype(str).unique())
-        sel_names_sl = _sidebar_slicer_values(
-            "Name",
-            nm,
-            widget_key=f"sl_nm_{_sk}",
-            use_multi=multi_mode,
-        )
-        st.sidebar.caption("Rawdata column: `correct_name`")
+        with st.expander("Name", expanded=False):
+            sel_names_sl = _sidebar_slicer_values(
+                "Choose options",
+                nm,
+                widget_key=f"sl_nm_{_sk}",
+                use_multi=multi_mode,
+            )
+            st.caption("Rawdata column: `correct_name`")
 
     sel_act_sl: list[str] = []
     if "active_status" in df.columns:
         ac = sorted(df["active_status"].dropna().astype(str).unique())
-        sel_act_sl = _sidebar_slicer_values(
-            "Current status (active_status)",
-            ac,
-            widget_key=f"sl_ac_{_sk}",
-            use_multi=multi_mode,
-        )
+        with st.expander("Current status (active_status)", expanded=False):
+            sel_act_sl = _sidebar_slicer_values(
+                "Choose options",
+                ac,
+                widget_key=f"sl_ac_{_sk}",
+                use_multi=multi_mode,
+            )
 
     sel_ten_sl: list[str] = []
     if "Tenure Bracket" in df.columns:
         tn = sorted(df["Tenure Bracket"].dropna().astype(str).unique(), key=_tenure_sort_sl)
-        sel_ten_sl = _sidebar_slicer_values(
-            "Tenure Bracket",
-            tn,
-            widget_key=f"sl_tn_{_sk}",
-            use_multi=multi_mode,
-        )
+        with st.expander("Tenure Bracket", expanded=False):
+            sel_ten_sl = _sidebar_slicer_values(
+                "Choose options",
+                tn,
+                widget_key=f"sl_tn_{_sk}",
+                use_multi=multi_mode,
+            )
 
     sel_emp_sl: list[str] = []
     if "Employment Status" in df.columns:
         em = sorted(df["Employment Status"].dropna().astype(str).unique())
-        sel_emp_sl = _sidebar_slicer_values(
-            "Employment status",
-            em,
-            widget_key=f"sl_em_{_sk}",
-            use_multi=multi_mode,
-        )
+        with st.expander("Employment status", expanded=False):
+            sel_emp_sl = _sidebar_slicer_values(
+                "Choose options",
+                em,
+                widget_key=f"sl_em_{_sk}",
+                use_multi=multi_mode,
+            )
 
-    _br_col_sl = resolve_branch_column(df)
+    # Prefer Branch Name in slicer list; fallback to branch code.
+    _br_col_sl = resolve_branch_name_column(df) or resolve_branch_column(df)
     sel_br_sl: list[str] = []
     if _br_col_sl:
         _br_opts = sorted(df[_br_col_sl].dropna().astype(str).str.strip().unique())
         _br_key = f"sl_br_{_sk}"
-        sel_br_sl = _sidebar_slicer_values(
-            "Branch",
-            _br_opts,
-            widget_key=_br_key,
-            use_multi=multi_mode,
-        )
-        if multi_mode and _br_opts and st.sidebar.button(
-            "Select all branches",
-            key=f"sl_br_all_{_sk}",
-            help="Fills the Branch multi-select with every branch in the file (same as clearing the filter).",
-        ):
-            st.session_state[_br_key] = list(_br_opts)
-            st.rerun()
-        st.sidebar.caption(f"Rawdata column: `{_br_col_sl}` · empty = **all** branches")
+        with st.expander("Branch", expanded=False):
+            sel_br_sl = _sidebar_slicer_values(
+                "Choose options",
+                _br_opts,
+                widget_key=_br_key,
+                use_multi=multi_mode,
+            )
+            if multi_mode and _br_opts and st.button(
+                "Select all branches",
+                key=f"sl_br_all_{_sk}",
+                help="Fills the Branch multi-select with every branch in the file (same as clearing the filter).",
+            ):
+                st.session_state[_br_key] = list(_br_opts)
+                st.rerun()
+            st.caption(f"Rawdata column: `{_br_col_sl}` · empty = **all** branches")
 
     _df_pre_slicers = df.copy()
     df_before = len(df)
@@ -2122,16 +2273,87 @@ with tab_overview:
     st.write(f"**Duplicate rows:** {dupes:,}")
 
 with tab_stats:
-    st.subheader("Summary (numeric)")
+    st.subheader("Statistics & data health")
+    st.caption("Executive view of data quality, KPI baselines, and outlier risk for the current filters.")
+
     num = numeric_df(df)
+    n_rows = int(len(df))
+    n_cols = int(df.shape[1]) if n_rows else int(df.shape[1])
+    miss_s_all = df.isna().sum()
+    miss_s = miss_s_all[miss_s_all > 0].sort_values(ascending=False)
+    total_cells = max(1, int(df.shape[0] * df.shape[1]))
+    missing_cells = int(miss_s_all.sum())
+    completeness_pct = 100.0 * (1.0 - (missing_cells / total_cells))
+    dupes = int(df.duplicated().sum())
+
+    h1, h2, h3, h4, h5 = st.columns(5)
+    h1.metric("Rows in view", f"{n_rows:,}")
+    h2.metric("Columns", f"{n_cols:,}")
+    h3.metric("Data completeness", f"{completeness_pct:.1f}%")
+    h4.metric("Columns with missing", f"{int((miss_s_all > 0).sum()):,}")
+    h5.metric("Duplicate rows", f"{dupes:,}")
+
+    st.divider()
+    st.subheader("KPI baseline snapshot")
+    kpi_items: list[tuple[str, str]] = []
+    if "TOTAL_UDI" in df.columns:
+        _tot_udi = float(pd.to_numeric(df["TOTAL_UDI"], errors="coerce").fillna(0).sum())
+        kpi_items.append(("TOTAL_UDI (sum)", f"{_tot_udi:,.0f}"))
+        if n_rows > 0:
+            kpi_items.append(("Avg UDI per row", f"{_tot_udi / max(1, n_rows):,.0f}"))
+    if "TOTAL_COUNT" in df.columns:
+        _tot_count = float(pd.to_numeric(df["TOTAL_COUNT"], errors="coerce").fillna(0).sum())
+        kpi_items.append(("TOTAL_COUNT (sum)", f"{_tot_count:,.0f}"))
+    if "correct_name" in df.columns and n_rows > 0:
+        _heads = int(df["correct_name"].astype(str).nunique())
+        kpi_items.append(("Unique employees", f"{_heads:,}"))
+    if not kpi_items:
+        st.info("Add KPI columns (e.g. TOTAL_UDI / TOTAL_COUNT / correct_name) to show business snapshot cards.")
+    else:
+        cols = st.columns(min(4, len(kpi_items)))
+        for i, (lab, val) in enumerate(kpi_items[:4]):
+            cols[i].metric(lab, val)
+
+    st.divider()
+    st.subheader("Outlier watchlist (IQR rule)")
+    if num.empty:
+        st.warning("No numeric columns detected for statistical checks.")
+    else:
+        out_rows: list[dict[str, Any]] = []
+        for c in num.columns:
+            s = pd.to_numeric(num[c], errors="coerce").dropna()
+            if len(s) < 4:
+                continue
+            q1, q3 = s.quantile([0.25, 0.75])
+            iqr = float(q3 - q1)
+            low = float(q1 - 1.5 * iqr)
+            high = float(q3 + 1.5 * iqr)
+            n_out = int(((s < low) | (s > high)).sum())
+            if n_out <= 0:
+                continue
+            out_rows.append(
+                {
+                    "Column": str(c),
+                    "Outliers": n_out,
+                    "Outlier %": 100.0 * n_out / max(1, len(s)),
+                    "Lower bound": low,
+                    "Upper bound": high,
+                }
+            )
+        if not out_rows:
+            st.success("No IQR outliers detected in numeric columns for this filtered view.")
+        else:
+            out_df = pd.DataFrame(out_rows).sort_values(["Outliers", "Outlier %"], ascending=False).head(8)
+            st.dataframe(out_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("Summary (numeric)")
     if num.empty:
         st.warning("No numeric columns detected for describe().")
     else:
         st.dataframe(num.describe().T, use_container_width=True)
 
     st.subheader("Missing values by column")
-    miss_s = df.isna().sum().sort_values(ascending=False)
-    miss_s = miss_s[miss_s > 0]
     if miss_s.empty:
         st.success("No missing values in loaded columns.")
     else:
@@ -2144,6 +2366,12 @@ with tab_stats:
         )
         fig_m.update_layout(yaxis={"categoryorder": "total ascending"}, height=max(320, len(miss_s) * 22))
         st.plotly_chart(fig_m, use_container_width=True)
+        with st.expander("Interpretation guide", expanded=False):
+            st.markdown(
+                "- High missing counts can bias KPIs and correlations.\n"
+                "- Prioritize required columns first (e.g., `Report Period`, `TOTAL_UDI`, employee identifiers).\n"
+                "- If missing values are expected, document business rules before modeling."
+            )
 
 with tab_viz:
     btn_a, btn_b = st.columns(2)
