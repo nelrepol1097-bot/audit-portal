@@ -1,5 +1,5 @@
 """
-Interactive Excel analytics dashboard.
+Interactive analytics dashboard (Excel **or** CSV).
 
 Run from this folder (not `python app.py`):
   streamlit run app.py
@@ -42,6 +42,34 @@ from report_pivots import (
 
 def load_excel(source: bytes | str, sheet_name: str | int | None = 0) -> pd.DataFrame:
     return pd.read_excel(source, sheet_name=sheet_name, engine="openpyxl")
+
+
+def source_is_csv(file_label: str) -> bool:
+    """Treat paths / upload names ending in `.csv` as CSV (case-insensitive)."""
+    return str(file_label).strip().casefold().endswith(".csv")
+
+
+def load_dataframe_from_bytes(
+    data: bytes,
+    file_label: str,
+    sheet_name: str | int,
+) -> pd.DataFrame:
+    """Load **Rawdata-style** table from Excel (sheet) or a single CSV file."""
+    if source_is_csv(file_label):
+        bio = io.BytesIO(data)
+        try:
+            return pd.read_csv(bio, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            bio.seek(0)
+            return pd.read_csv(bio, encoding="latin-1")
+    return load_excel(io.BytesIO(data), sheet_name=sheet_name)
+
+
+def sheet_names_for_source(data: bytes, file_label: str) -> list[str]:
+    """Excel → real sheet names; CSV → one logical “sheet” so the UI stays the same."""
+    if source_is_csv(file_label):
+        return ["Data"]
+    return sheet_names_from_bytes(data)
 
 
 def _tenure_sort_sl(val: str) -> int:
@@ -557,12 +585,36 @@ def classify_mr_productivity_row(r: pd.Series) -> tuple[str, str, str]:
     )
 
 
+def _production_status_labels(df: pd.DataFrame) -> pd.Series:
+    """Labels for the insights grid: **With Production** / **NO Production** (matches Rawdata when possible)."""
+    n = len(df)
+    if n == 0:
+        return pd.Series(dtype=object)
+    if "With Production" in df.columns:
+        def _one(x: Any) -> str:
+            if pd.isna(x):
+                return "—"
+            v = str(x).strip().casefold()
+            if v == "yes":
+                return "With Production"
+            if v == "no":
+                return "NO Production"
+            return str(x).strip() or "—"
+
+        return df["With Production"].map(_one)
+    udi = pd.to_numeric(df["TOTAL_UDI"], errors="coerce") if "TOTAL_UDI" in df.columns else None
+    if udi is not None:
+        return udi.fillna(0).gt(0).map(lambda b: "With Production" if b else "NO Production")
+    return pd.Series(["—"] * n, index=df.index, dtype=object)
+
+
 def build_mr_insight_table(df: pd.DataFrame) -> pd.DataFrame | None:
     """Append Insight tier / Suggested action / Rule applied. Requires Employment Status + Tenure + TOTAL_UDI."""
     req = ("TOTAL_UDI", "Employment Status", "Tenure Bracket")
     if not all(c in df.columns for c in req):
         return None
     out = df.copy()
+    out["Production status"] = _production_status_labels(out)
     tups = [classify_mr_productivity_row(out.iloc[i]) for i in range(len(out))]
     out["Insight tier"] = [t[0] for t in tups]
     out["Suggested action"] = [t[1] for t in tups]
@@ -724,6 +776,7 @@ def mr_insights_table_column_order(ins: pd.DataFrame) -> list[str]:
         "position",
         "Report Period",
         "Report date",
+        "Production status",
         "Employment Status",
         "Tenure Bracket",
         "TOTAL_UDI",
@@ -1489,22 +1542,26 @@ st.markdown(
 
 with st.sidebar:
     st.header("Data source")
-    mode = st.radio("Source", ["Upload .xlsx", "File path"], horizontal=True)
+    mode = st.radio("Source", ["Upload file", "File path"], horizontal=True)
     uploaded = None
     path_str = ""
-    if mode == "Upload .xlsx":
-        uploaded = st.file_uploader("Excel file", type=["xlsx", "xlsm"])
+    if mode == "Upload file":
+        uploaded = st.file_uploader(
+            "Excel or CSV",
+            type=["xlsx", "xlsm", "csv"],
+            help="**Excel:** use the **Rawdata** sheet for pivots (or export that sheet to CSV).",
+        )
     else:
         path_str = st.text_input(
-            "Full path to .xlsx / .xlsm",
+            "Full path to .xlsx, .xlsm, or .csv",
             value=str(_LOCAL_XLSM) if _LOCAL_XLSM.is_file() else "",
-            placeholder=r"C:\path\to\workbook.xlsx",
+            placeholder=r"C:\path\to\workbook.xlsx or C:\path\to\rawdata.csv",
         )
 
 data_bytes: bytes | None = None
 file_label = ""
 
-if mode == "Upload .xlsx" and uploaded is not None:
+if mode == "Upload file" and uploaded is not None:
     data_bytes = uploaded.getvalue()
     file_label = uploaded.name
 elif mode == "File path" and path_str.strip():
@@ -1516,14 +1573,14 @@ elif mode == "File path" and path_str.strip():
         st.error(f"Could not read file: {e}")
 
 if not data_bytes:
-    st.info("Upload an Excel file or enter a valid path to begin.")
+    st.info("Upload an **Excel** (.xlsx / .xlsm) or **CSV** file, or enter a valid path to begin.")
     st.stop()
     sys.exit(0)
 
 try:
-    sheets = sheet_names_from_bytes(data_bytes)
+    sheets = sheet_names_for_source(data_bytes, file_label)
 except Exception as e:
-    st.error(f"Could not open workbook: {e}")
+    st.error(f"Could not read file: {e}")
     st.stop()
     sys.exit(1)
 
@@ -1541,10 +1598,13 @@ def _sheet_default_index(names: list[str]) -> int:
 col_a, col_b = st.columns([1, 2])
 with col_a:
     sheet = st.selectbox(
-        "Sheet",
+        "Sheet" if not source_is_csv(file_label) else "Table",
         sheets,
         index=_sheet_default_index(sheets),
-        help="Overall / monthly sheets are dashboard layouts. For analytics, choose Rawdata (or it auto-loads below).",
+        help=(
+            "CSV files have a single table (**Data**). "
+            "For Excel, pick **Rawdata** for analytics (dashboard sheets are layouts only)."
+        ),
     )
 with col_b:
     st.write(f"**File:** `{file_label}`")
@@ -1555,9 +1615,9 @@ if "Rawdata" in sheets and sheet != "Rawdata":
     analysis_sheet = "Rawdata"
 
 try:
-    df = load_excel(io.BytesIO(data_bytes), sheet_name=analysis_sheet)
+    df = load_dataframe_from_bytes(data_bytes, file_label, analysis_sheet)
 except Exception as e:
-    st.error(f"Could not load sheet: {e}")
+    st.error(f"Could not load data: {e}")
     st.stop()
     sys.exit(1)
 
@@ -1565,16 +1625,21 @@ df = df.dropna(how="all").dropna(axis=1, how="all")
 df = dedupe_column_names(df)
 df = normalize_slicer_text_columns(df)
 
-if "Rawdata" in sheets and sheet != "Rawdata":
-    st.warning(
-        f"**{sheet}** is not a flat table (merged cells / titles). "
-        f"All tabs below **automatically use the `Rawdata` sheet** — that is what feeds the Overall pivots in Excel. "
-        f"For the full president-style report: `python -m streamlit run consolidated_mr_report.py`"
-    )
-elif "Rawdata" not in sheets:
-    st.warning(
-        "This workbook has no **Rawdata** sheet. "
-        "**Overall** / monthly tabs are report layouts only — they may lack numeric columns and have bad Unnamed headers."
+if not source_is_csv(file_label):
+    if "Rawdata" in sheets and sheet != "Rawdata":
+        st.warning(
+            f"**{sheet}** is not a flat table (merged cells / titles). "
+            f"All tabs below **automatically use the `Rawdata` sheet** — that is what feeds the Overall pivots in Excel. "
+            f"For the full president-style report: `python -m streamlit run consolidated_mr_report.py`"
+        )
+    elif "Rawdata" not in sheets:
+        st.warning(
+            "This workbook has no **Rawdata** sheet. "
+            "**Overall** / monthly tabs are report layouts only — they may lack numeric columns and have bad Unnamed headers."
+        )
+else:
+    st.caption(
+        "CSV loaded as one table. Use the same column names as **Rawdata** (e.g. **Report Period**, **TOTAL_UDI**, **correct_name**)."
     )
 
 # --- Sidebar: slicers / filters (applied to all tabs) ---
