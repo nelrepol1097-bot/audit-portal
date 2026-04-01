@@ -1,4 +1,4 @@
-"""
+""
 Interactive Excel analytics dashboard.
 
 Run from this folder (not `python app.py`):
