@@ -1,4 +1,4 @@
-""
+"""
 Interactive Excel analytics dashboard.
 
 Run from this folder (not `python app.py`):
@@ -101,6 +101,15 @@ def apply_app_slicers(
         bc = out[str(branch_column)].map(lambda x: str(x).strip() if pd.notna(x) else "")
         out = out.loc[bc.isin([str(b).strip() for b in branches])]
     return out.copy()
+
+
+def overview_with_production_slice(d: pd.DataFrame, with_production: str | None) -> pd.DataFrame:
+    """Filter **With Production**; `d` is already limited to the chosen report period(s)."""
+    out = d.copy()
+    if with_production is not None and str(with_production) not in ("", "All"):
+        if "With Production" in out.columns:
+            out = out.loc[out["With Production"].astype(str) == str(with_production)]
+    return out
 
 
 def slice_period_and_production(
@@ -210,6 +219,40 @@ def _fmt_kpi_delta(current: int | float | None, previous: int | float | None) ->
     except (TypeError, ValueError):
         return None
     return f"{c - p:+,.0f} vs prev month"
+
+
+def _safe_filename_stem(text: str, max_len: int = 56) -> str:
+    s = re.sub(r"[^\w\-]+", "_", str(text).strip())
+    s = s.strip("_") or "export"
+    return s[:max_len]
+
+
+def _sanitize_excel_sheet_name(name: str) -> str:
+    invalid = r'[]:*?/\\'
+    out = str(name).strip() or "Sheet"
+    for ch in invalid:
+        out = out.replace(ch, "_")
+    return (out[:31] if len(out) > 31 else out) or "Sheet"
+
+
+def _dataframes_to_xlsx_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
+    """Write one or more frames to a single .xlsx in memory (openpyxl)."""
+    bio = io.BytesIO()
+    used_lower: set[str] = set()
+    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+        for raw_name, frame in sheets.items():
+            base = _sanitize_excel_sheet_name(raw_name)
+            sheet = base
+            n = 1
+            while sheet.lower() in used_lower:
+                suf = f"_{n}"
+                trim = 31 - len(suf)
+                sheet = _sanitize_excel_sheet_name((base[:trim] + suf) if trim > 0 else f"S{n}")
+                n += 1
+            used_lower.add(sheet.lower())
+            frame.to_excel(writer, sheet_name=sheet, index=False)
+    bio.seek(0)
+    return bio.getvalue()
 
 
 def build_report_period_trend_table(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -541,6 +584,17 @@ def _parse_report_period_series(s: pd.Series) -> pd.Series:
                     dts.iloc[i] = t
                     break
     return dts
+
+
+def sort_report_period_labels(labels: list[str]) -> list[str]:
+    """Chronological order for **Report Period** string labels (same parsing as trend tables)."""
+    if not labels:
+        return []
+    uniq = list(dict.fromkeys(str(x).strip() for x in labels))
+    s = pd.Series(uniq, dtype=object)
+    dts = _parse_report_period_series(s)
+    order = np.argsort(dts.fillna(pd.Timestamp.max).to_numpy())
+    return [str(s.iloc[i]) for i in order]
 
 
 def resolve_report_timeline_column(df: pd.DataFrame) -> str | None:
@@ -1913,20 +1967,34 @@ with tab_overview:
             st.warning("No valid **Report Period** values after filtering.")
         else:
             st.subheader("Overview")
-            # Use sidebar Report Period only (no duplicate in-page dropdown).
-            if sel_report_periods:
-                _sel_clean = [str(x).strip() for x in sel_report_periods]
-                _matches = [p for p in periods_ov if str(p).strip() in _sel_clean]
-                ov_period = _matches[-1] if _matches else periods_ov[-1]
+            # Report Period: one month → that slice; multiple selected → aggregate every selected month.
+            _sel_rp_set = {str(x).strip() for x in sel_report_periods} if sel_report_periods else set()
+            if _sel_rp_set:
+                _matches = [p for p in periods_ov if str(p).strip() in _sel_rp_set]
+                if not _matches:
+                    _matches = [periods_ov[-1]]
+                _overview_rp_sorted = sort_report_period_labels([str(x) for x in _matches])
             else:
-                ov_period = periods_ov[-1]
+                _overview_rp_sorted = [str(periods_ov[-1]).strip()]
 
-            df_ov = slice_period_and_production(df, ov_period, None)
+            ov_multi = bool(sel_report_periods) and len(_overview_rp_sorted) > 1
+            ov_anchor_period = str(_overview_rp_sorted[-1]).strip()
+
+            if ov_multi:
+                df_ov = df.copy()
+                ov_period_label = (
+                    f"{len(_overview_rp_sorted)} periods ({_overview_rp_sorted[0]} – {_overview_rp_sorted[-1]})"
+                )
+            elif sel_report_periods:
+                df_ov = slice_period_and_production(df, ov_anchor_period, None)
+                ov_period_label = ov_anchor_period
+            else:
+                df_ov = slice_period_and_production(df, ov_anchor_period, None)
+                ov_period_label = ov_anchor_period
+
             kpi = compute_overview_kpis(df_ov)
 
-            # For period-over-period comparison, ignore the Report Period slicer
-            # but respect all other sidebar filters so we can still see the
-            # true previous month even when a single period is selected.
+            # Period-over-period: only when a single report month is in scope for Overview.
             _df_prev_base = apply_app_slicers(
                 _df_pre_slicers,
                 report_periods=None,
@@ -1938,10 +2006,16 @@ with tab_overview:
                 branches=sel_br_sl or None,
                 branch_column=_br_col_sl,
             )
-            prev_period_ov, prev_kpi = _overview_prev_period_kpi_context(_df_prev_base, ov_period)
+            if ov_multi:
+                prev_period_ov = None
+                prev_kpi: dict[str, int | float | None] = {}
+            else:
+                prev_period_ov, prev_kpi = _overview_prev_period_kpi_context(_df_prev_base, ov_anchor_period)
+
             st.caption(
-                f"KPIs for **{ov_period}** · {len(df_ov):,} rows in view (sidebar filters applied). "
-                "Change slicers or period to refresh."
+                f"KPIs for **{ov_period_label}** · {len(df_ov):,} rows in view (sidebar filters applied). "
+                + ("**Totals sum every selected month** (employee rows repeat each month). " if ov_multi else "")
+                + "Change slicers or period to refresh."
             )
             if prev_period_ov is not None:
                 st.caption(f"Period comparison is against previous month: **{prev_period_ov}**.")
@@ -2020,15 +2094,37 @@ with tab_overview:
                 _rp_card_order = list(dict.fromkeys(_udi_pos_trend["Report Period"].astype(str).tolist()))
 
                 with st.container(border=True):
-                    st.caption("Interactive **value cards** — follows the selected Overview report period; Δ compares to prior month.")
-                    _card_rp = str(ov_period) if str(ov_period) in _rp_card_order else _rp_card_order[-1]
-                    _sub_card = _udi_pos_trend.loc[_udi_pos_trend["Report Period"].astype(str) == str(_card_rp)]
-                    _prev_ix = _rp_card_order.index(_card_rp) - 1 if _card_rp in _rp_card_order else -1
-                    _prev_rp = _rp_card_order[_prev_ix] if _prev_ix >= 0 else None
+                    _card_caption = (
+                        "Interactive **value cards** — **TOTAL_UDI** summed across every selected report period when you pick multiple months; "
+                        "Δ vs prior month only when a **single** month drives Overview."
+                    )
+                    st.caption(_card_caption)
+                    _rp_sel_set = {str(x).strip() for x in _overview_rp_sorted}
+                    _sub_card = _udi_pos_trend.loc[
+                        _udi_pos_trend["Report Period"].astype(str).str.strip().isin(_rp_sel_set)
+                    ]
+                    _pos_totals = (
+                        _sub_card.groupby("Position", dropna=False)["TOTAL_UDI"]
+                        .sum()
+                        .reindex(_pos_cat)
+                        .fillna(0.0)
+                    )
+
                     _prev_map: dict[str, float] = {}
-                    if _prev_rp is not None:
-                        _p = _udi_pos_trend.loc[_udi_pos_trend["Report Period"].astype(str) == str(_prev_rp)]
-                        _prev_map = dict(zip(_p["Position"].astype(str), pd.to_numeric(_p["TOTAL_UDI"], errors="coerce")))
+                    _prev_rp: str | None = None
+                    if not ov_multi:
+                        _card_rp = (
+                            str(ov_anchor_period)
+                            if str(ov_anchor_period) in _rp_card_order
+                            else _rp_card_order[-1]
+                        )
+                        _prev_ix = _rp_card_order.index(_card_rp) - 1 if _card_rp in _rp_card_order else -1
+                        _prev_rp = _rp_card_order[_prev_ix] if _prev_ix >= 0 else None
+                        if _prev_rp is not None:
+                            _p = _udi_pos_trend.loc[_udi_pos_trend["Report Period"].astype(str) == str(_prev_rp)]
+                            _prev_map = dict(
+                                zip(_p["Position"].astype(str), pd.to_numeric(_p["TOTAL_UDI"], errors="coerce"))
+                            )
 
                     _n_pos = len(_pos_cat)
                     _cols_per = 4
@@ -2039,12 +2135,12 @@ with tab_overview:
                             if _pi >= _n_pos:
                                 break
                             _pn = _pos_cat[_pi]
-                            _row = _sub_card.loc[_sub_card["Position"].astype(str) == _pn]
-                            _v = float(pd.to_numeric(_row["TOTAL_UDI"], errors="coerce").iloc[0]) if len(_row) else 0.0
-                            _pv = _prev_map.get(_pn)
+                            _v = float(_pos_totals.loc[_pn]) if _pn in _pos_totals.index else 0.0
                             _delta_s = None
-                            if _prev_rp is not None and _pv is not None and pd.notna(_pv):
-                                _delta_s = f"{_v - float(_pv):+,.0f} vs prior month"
+                            if not ov_multi and _prev_rp is not None:
+                                _pv = _prev_map.get(_pn)
+                                if _pv is not None and pd.notna(_pv):
+                                    _delta_s = f"{_v - float(_pv):+,.0f} vs prior month"
                             with _col:
                                 st.metric(
                                     _pn,
@@ -2119,10 +2215,10 @@ with tab_overview:
 
             with st.container(border=True):
                 st.markdown(
-                    f'<p class="pivot-h2">Active Employee Count as of {ov_period}</p>',
+                    f'<p class="pivot-h2">Active Employee Count — {ov_period_label}</p>',
                     unsafe_allow_html=True,
                 )
-                _overview_pane(ov_period, [("With Production", "All")])
+                _overview_pane(ov_period_label, [("With Production", "All")])
                 st.caption(
                     "**Pivot:** `groupby(position)` → row counts. Excel **Months** = `position` (may show *(blank)*)."
                 )
@@ -2137,12 +2233,12 @@ with tab_overview:
                     "Missing columns for **MR productivity** pivots: " + ", ".join(missing_prod)
                 )
             else:
-                sub_yes = slice_period_and_production(df, ov_period, "Yes")
-                sub_no = slice_period_and_production(df, ov_period, "No")
+                sub_yes = overview_with_production_slice(df_ov, "Yes")
+                sub_no = overview_with_production_slice(df_ov, "No")
                 prod_yes = productivity_summary(sub_yes)
                 prod_no = productivity_summary(sub_no)
                 st.markdown(
-                    f'<p class="pivot-h2">MR productivity count by tenure — {ov_period} · {prod_title_pos}</p>',
+                    f'<p class="pivot-h2">MR productivity count by tenure — {ov_period_label} · {prod_title_pos}</p>',
                     unsafe_allow_html=True,
                 )
                 st.caption(
@@ -2152,13 +2248,28 @@ with tab_overview:
                 )
                 py, pn = st.columns(2)
                 with py:
-                    st.markdown(f"**MR Productivity Count — {ov_period}**")
-                    _overview_pane(ov_period, [("With Production", "Yes")])
+                    st.markdown(f"**MR Productivity Count — {ov_period_label}**")
+                    _overview_pane(ov_period_label, [("With Production", "Yes")])
                     plotly_pivot_table(prod_yes, "", "Total Count")
                 with pn:
                     st.markdown('**MR with "No Production"**')
-                    _overview_pane(ov_period, [("With Production", "No")])
+                    _overview_pane(ov_period_label, [("With Production", "No")])
                     plotly_pivot_table(prod_no, "", None)
+
+                _stem_prod = _safe_filename_stem(ov_period_label)
+                st.download_button(
+                    "Download MR productivity tables (.xlsx)",
+                    data=_dataframes_to_xlsx_bytes(
+                        {
+                            "MR With Production Yes": prod_yes.copy(),
+                            "MR No Production": prod_no.copy(),
+                        }
+                    ),
+                    file_name=f"mr_productivity_by_tenure_{_stem_prod}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_mr_prod_xlsx_{_sk}",
+                    help="Two worksheets: tenure pivot for **With Production = Yes** and **No** (numeric values).",
+                )
 
                 gty = prod_yes[prod_yes["Tenure Bracket"] == "Grand Total"]
                 gtn = prod_no[prod_no["Tenure Bracket"] == "Grand Total"]
@@ -2214,7 +2325,7 @@ with tab_overview:
                     st.session_state[mod_key_ov] = default_modifiers_from_raw(df)
                 if mod_ver_key not in st.session_state:
                     st.session_state[mod_ver_key] = 0
-                base_ud = slice_period_and_production(df, ov_period, None)
+                base_ud = df_ov.copy()
 
                 st.divider()
                 st.subheader("Amount modifiers (targets per employee)")
@@ -2314,14 +2425,25 @@ with tab_overview:
 
                 with st.container(border=True):
                     st.markdown(
-                        f'<p class="pivot-h2">Regular / Probi MR Total UDI — {ov_period}</p>',
+                        f'<p class="pivot-h2">Regular / Probi MR Total UDI — {ov_period_label}</p>',
                         unsafe_allow_html=True,
                     )
-                    _overview_pane(ov_period, [("With Production", "All")])
+                    _overview_pane(ov_period_label, [("With Production", "All")])
                     st.caption(
                         "**Pivot:** Probi / Regular × **Tenure Bracket** → sum **KB_UDI … TOTAL_UDI**; "
                         "modifiers × headcount for cost and targets. "
                         "**TOTAL UDI** = roll-up of **KB_UDI**, **MR_UDI**, **REFERRAL_UDI**, and **FB_SUPPORT_UDI**."
+                    )
+                    _stem_udi = _safe_filename_stem(ov_period_label)
+                    st.download_button(
+                        "Download Regular / Probi MR Total UDI (.xlsx)",
+                        data=_dataframes_to_xlsx_bytes(
+                            {"Regular Probi MR Total UDI": udi_tbl.copy()}
+                        ),
+                        file_name=f"mr_total_udi_by_tenure_{_stem_udi}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"dl_mr_udi_xlsx_{_sk}",
+                        help="Same pivot as the chart: **numeric** columns (not the formatted display strings).",
                     )
                     disp = udi_tbl.copy()
                     disp["Total Employee"] = disp["Total Employee"].map(
