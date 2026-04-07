@@ -501,8 +501,6 @@ def admin_panel():
 # ---------------------------------------------------
 # ATP CERTIFICATES PAGE
 # ---------------------------------------------------
-
-
 def atp_certificates():
     st.title("📄 ATP Certificates Compliance")
 
@@ -525,11 +523,23 @@ def atp_certificates():
 
     df = load_atp()
 
+    df_view, filters_active = render_column_filters(
+        df,
+        key_prefix="atp",
+        expander_label="Column filters",
+    )
+
+    if filters_active:
+        st.warning(
+            "Filters are on: Save and Undo are disabled so rows hidden by the filter "
+            "are not treated as deleted."
+        )
+
     if "atp_orig" not in st.session_state:
         st.session_state.atp_orig = df.copy()
 
     edited_df = st.data_editor(
-        df,
+        df_view,
         num_rows="dynamic",
         use_container_width=True,
         key="atp_editor",
@@ -542,7 +552,7 @@ def atp_certificates():
     col_save, col_undo, col_refresh = st.columns(3)
 
     with col_save:
-        if st.button("💾 Save Changes", key="atp_save"):
+        if st.button("💾 Save Changes", key="atp_save", disabled=filters_active):
             handle_save_with_id(
                 df_name_prefix="atp",
                 table_name="ATP_CERTIFICATES",
@@ -593,7 +603,7 @@ def atp_certificates():
             safe_rerun()
 
     with col_undo:
-        if st.button("↩ Undo last delete", key="atp_undo"):
+        if st.button("↩ Undo last delete", key="atp_undo", disabled=filters_active):
             ok = handle_undo_with_id(
                 df_name_prefix="atp",
                 table_name="ATP_CERTIFICATES",
@@ -629,8 +639,6 @@ def atp_certificates():
             load_atp.clear()
             st.session_state.atp_orig = load_atp()
             safe_rerun()
-
-
 # ---------------------------------------------------
 # BIR 1906 ATP
 # ---------------------------------------------------
