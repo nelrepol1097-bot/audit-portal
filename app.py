@@ -95,8 +95,7 @@ lottie_login = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikw
 # ---------------------------------------------------
 
 
-@st.cache_resource
-def get_connection():
+def _create_connection():
     return snowflake.connector.connect(
         user="jmcasaria",
         password=st.secrets["snowflake"]["password"],
@@ -105,12 +104,43 @@ def get_connection():
         database="CFB_ANALYST_JAKE_DB",
         schema="PUBLIC",
         role="ANALYST_JAKE_ROLE",
+        client_session_keep_alive=True,
     )
+
+
+@st.cache_resource
+def get_connection():
+    return _create_connection()
+
+
+def _is_token_expired_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "390114" in msg
+        or "authentication token has expired" in msg
+        or "must authenticate again" in msg
+        or "session no longer exists" in msg
+    )
+
+
+def _refresh_connection():
+    get_connection.clear()
+    return get_connection()
 
 
 def get_cursor():
     conn = get_connection()
-    return conn, conn.cursor()
+    try:
+        # Validate cached session before handing out a cursor.
+        ping_cur = conn.cursor()
+        ping_cur.execute("SELECT 1")
+        ping_cur.close()
+        return conn, conn.cursor()
+    except Exception as e:
+        if _is_token_expired_error(e):
+            conn = _refresh_connection()
+            return conn, conn.cursor()
+        raise
 
 # ---------------------------------------------------
 # AI CLIENT
