@@ -1,7 +1,9 @@
+import base64
 import os
 import time
 import smtplib
-from datetime import datetime
+from datetime import date, datetime
+from io import BytesIO
 import pandas as pd
 import plotly.express as px
 import requests
@@ -154,6 +156,363 @@ def safe_rerun():
         st.rerun()
     except AttributeError:
         st.experimental_rerun()
+
+
+# ---------------------------------------------------
+# COLUMN DROPDOWN FILTERS (additive — optional expander before data_editor)
+# ---------------------------------------------------
+_COL_FILTER_MAX_DISTINCT = 120
+
+
+def _filter_disp_str(x) -> str:
+    if x is None:
+        return "(blank)"
+    try:
+        if pd.isna(x):
+            return "(blank)"
+    except (TypeError, ValueError):
+        pass
+    if hasattr(x, "strftime"):
+        try:
+            return x.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    t = str(x).strip()
+    return "(blank)" if not t else t
+
+
+def _filter_display_series(s: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(s):
+        ts = pd.to_datetime(s, errors="coerce")
+        fmt = ts.dt.strftime("%Y-%m-%d")
+        return fmt.where(ts.notna(), "(blank)")
+    coerced = pd.to_datetime(s, errors="coerce")
+    nn = int(s.notna().sum())
+    if nn > 0 and int(coerced.notna().sum()) >= nn * 0.75:
+        fmt = coerced.dt.strftime("%Y-%m-%d")
+        return fmt.where(coerced.notna(), "(blank)")
+    return s.map(_filter_disp_str)
+
+
+def apply_column_dropdown_filters(
+    df: pd.DataFrame,
+    *,
+    key_prefix: str,
+    title: str = "🔽 Column filters (dropdown)",
+    max_distinct: int = _COL_FILTER_MAX_DISTINCT,
+    columns_per_row: int = 4,
+) -> pd.DataFrame:
+    """
+    Expander: one compact ``st.selectbox`` (All + distinct values) or a Contains field
+    per column; returns a filtered view. Does not modify the input frame.
+
+    Sets ``st.session_state[f"{key_prefix}__col_dropdown_filters_active"]`` so callers
+    can disable Save while filters hide rows (avoids treating hidden rows as deleted).
+    """
+    flag_key = f"{key_prefix}__col_dropdown_filters_active"
+    if df is None or df.empty or not len(df.columns):
+        st.session_state[flag_key] = False
+        return df
+
+    mask = pd.Series(True, index=df.index)
+    filters_active = False
+
+    with st.expander(title, expanded=False):
+        st.caption(
+            "**All** = no filter. Wide columns use **Contains** text. "
+            "Clear filters before **Save** so hidden rows are not treated as deleted."
+        )
+        colnames = [str(c) for c in df.columns]
+        for start in range(0, len(colnames), columns_per_row):
+            chunk = colnames[start : start + columns_per_row]
+            row = st.columns(len(chunk))
+            for cell, col in zip(row, chunk):
+                with cell:
+                    disp = _filter_display_series(df[col])
+                    uniq_vals = sorted(
+                        disp.dropna().unique().tolist(),
+                        key=lambda x: (x == "(blank)", str(x).lower()),
+                    )
+                    base = f"{key_prefix}__flt__{col}".replace(" ", "_")
+                    if len(uniq_vals) > max_distinct:
+                        q = st.text_input(
+                            col,
+                            value="",
+                            key=f"{base}_contains",
+                            placeholder="Contains…",
+                        )
+                        qq = (q or "").strip().lower()
+                        if qq:
+                            filters_active = True
+                            mask &= (
+                                disp.astype(str)
+                                .str.lower()
+                                .str.contains(qq, regex=False, na=False)
+                            )
+                    else:
+                        options = ["All"] + uniq_vals
+                        choice = st.selectbox(
+                            col,
+                            options,
+                            index=0,
+                            key=f"{base}_select",
+                        )
+                        if choice != "All":
+                            filters_active = True
+                            mask &= disp == choice
+
+    st.session_state[flag_key] = bool(filters_active)
+    return df.loc[mask].copy()
+
+
+def _save_disabled_col_filters(key_prefix: str) -> bool:
+    return bool(st.session_state.get(f"{key_prefix}__col_dropdown_filters_active", False))
+
+
+# ---------------------------------------------------
+# TAX MAPPED / FIRE SAFETY — image history (see snowflake_image_history_ddl.sql)
+# ---------------------------------------------------
+
+
+def _history_upload_user() -> str:
+    return str(st.session_state.get("user", "UNKNOWN"))[:256]
+
+
+def _as_sql_date(val):
+    if val is None:
+        return None
+    try:
+        if val is pd.NaT:
+            return None
+    except Exception:
+        pass
+    try:
+        if hasattr(val, "date") and callable(getattr(val, "date")):
+            d = val.date()
+            if isinstance(d, date):
+                return d
+    except Exception:
+        pass
+    ts = pd.to_datetime(val, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return ts.date()
+
+
+def _b64_to_bytes(maybe_b64) -> bytes | None:
+    if maybe_b64 is None or (isinstance(maybe_b64, float) and pd.isna(maybe_b64)):
+        return None
+    if isinstance(maybe_b64, bytes):
+        return maybe_b64
+    s = str(maybe_b64).strip()
+    if not s or s.lower() in ("none", "null"):
+        return None
+    try:
+        return base64.b64decode(s)
+    except Exception:
+        return None
+
+
+def _tax_mapped_history_insert(cursor, tax_mapped_id: int, image_bytes: bytes, as_of, user: str) -> None:
+    cursor.execute(
+        """
+        INSERT INTO TAX_MAPPED_STICKER_HISTORY (TAX_MAPPED_ID, IMAGE_DATA, AS_OF_DATE, UPLOADED_BY)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (int(tax_mapped_id), image_bytes, as_of, user),
+    )
+
+
+def _tax_mapped_history_fetch(cursor, tax_mapped_id: int):
+    cursor.execute(
+        """
+        SELECT IMAGE_DATA, AS_OF_DATE, CREATED_AT, UPLOADED_BY
+        FROM TAX_MAPPED_STICKER_HISTORY
+        WHERE TAX_MAPPED_ID = %s
+        ORDER BY AS_OF_DATE DESC NULLS LAST, CREATED_AT DESC
+        """,
+        (int(tax_mapped_id),),
+    )
+    return cursor.fetchall()
+
+
+def _tax_mapped_apply_image_upload(conn, cursor, row_id: int, new_bytes: bytes) -> tuple[bool, str]:
+    """
+    Archives the current STICKER_IMAGE into TAX_MAPPED_STICKER_HISTORY (if any), inserts the new
+    bytes as a history row, then sets STICKER_IMAGE to the new base64 (latest preview).
+    Falls back to UPDATE-only if the history table is missing.
+    """
+    user = _history_upload_user()
+    try:
+        cursor.execute(
+            "SELECT STICKER_IMAGE, DATE_TAX_MAPPED FROM TAX_MAPPED WHERE ID = %s",
+            (int(row_id),),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False, "Row not found."
+        old_b64, dt_mapped = row[0], row[1]
+        as_of = _as_sql_date(dt_mapped) or date.today()
+
+        old_bytes = _b64_to_bytes(old_b64)
+        if old_bytes:
+            _tax_mapped_history_insert(cursor, row_id, old_bytes, as_of, user)
+
+        _tax_mapped_history_insert(cursor, row_id, new_bytes, as_of, user)
+
+        new_b64 = base64.b64encode(new_bytes).decode("utf-8")
+        cursor.execute(
+            "UPDATE TAX_MAPPED SET STICKER_IMAGE = %s WHERE ID = %s",
+            (new_b64, int(row_id)),
+        )
+        conn.commit()
+        return True, "ok"
+    except Exception as e:
+        conn.rollback()
+        em = str(e).lower()
+        if (
+            "tax_mapped_sticker_history" in em
+            or "does not exist" in em
+            or "unknown table" in em
+        ):
+            try:
+                new_b64 = base64.b64encode(new_bytes).decode("utf-8")
+                cursor.execute(
+                    "UPDATE TAX_MAPPED SET STICKER_IMAGE = %s WHERE ID = %s",
+                    (new_b64, int(row_id)),
+                )
+                conn.commit()
+                return True, "saved_without_history_table"
+            except Exception as e2:
+                conn.rollback()
+                return False, str(e2)
+        return False, str(e)
+
+
+def _fire_history_insert(cursor, fire_id: int, image_bytes: bytes, as_of, user: str) -> None:
+    cursor.execute(
+        """
+        INSERT INTO FIRE_SAFETY_IMAGE_HISTORY (FIRE_SAFETY_ID, IMAGE_DATA, AS_OF_DATE, UPLOADED_BY)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (int(fire_id), image_bytes, as_of, user),
+    )
+
+
+def _fire_history_fetch(cursor, fire_id: int):
+    cursor.execute(
+        """
+        SELECT IMAGE_DATA, AS_OF_DATE, CREATED_AT, UPLOADED_BY
+        FROM FIRE_SAFETY_IMAGE_HISTORY
+        WHERE FIRE_SAFETY_ID = %s
+        ORDER BY AS_OF_DATE DESC NULLS LAST, CREATED_AT DESC
+        """,
+        (int(fire_id),),
+    )
+    return cursor.fetchall()
+
+
+def _fire_row_image_bytes(row) -> bytes | None:
+    for key in ("FSIC_IMAGE", "STICKER_IMAGE", "IMAGE"):
+        if key in row.index and row[key] is not None and not (
+            isinstance(row[key], float) and pd.isna(row[key])
+        ):
+            b = row[key]
+            if isinstance(b, bytes):
+                return b if len(b) > 0 else None
+            return _b64_to_bytes(b)
+    return None
+
+
+def _fire_apply_image_upload(conn, cursor, row_id: int, new_bytes: bytes) -> tuple[bool, str]:
+    user = _history_upload_user()
+    try:
+        cursor.execute(
+            """
+            SELECT FSIC_IMAGE, VALID_UNTIL, FSIC_CERTIFICATE_DATE
+            FROM FIRE_SAFETY WHERE ID = %s
+            """,
+            (int(row_id),),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False, "Row not found."
+        old_img, vu, fcd = row[0], row[1], row[2]
+        as_of = _as_sql_date(vu) or _as_sql_date(fcd) or date.today()
+
+        if old_img is not None and not (isinstance(old_img, float) and pd.isna(old_img)):
+            if isinstance(old_img, bytes) and len(old_img) > 0:
+                _fire_history_insert(cursor, row_id, old_img, as_of, user)
+            else:
+                ob = _b64_to_bytes(old_img)
+                if ob:
+                    _fire_history_insert(cursor, row_id, ob, as_of, user)
+
+        _fire_history_insert(cursor, row_id, new_bytes, as_of, user)
+
+        try:
+            cursor.execute(
+                "UPDATE FIRE_SAFETY SET FSIC_IMAGE = %s WHERE ID = %s",
+                (new_bytes, int(row_id)),
+            )
+        except Exception:
+            new_b64 = base64.b64encode(new_bytes).decode("utf-8")
+            cursor.execute(
+                "UPDATE FIRE_SAFETY SET FSIC_IMAGE = %s WHERE ID = %s",
+                (new_b64, int(row_id)),
+            )
+        conn.commit()
+        return True, "ok"
+    except Exception as e:
+        conn.rollback()
+        em = str(e).lower()
+        if (
+            "fire_safety_image_history" in em
+            or "does not exist" in em
+            or "unknown table" in em
+            or "fsic_image" in em
+        ):
+            try:
+                new_b64 = base64.b64encode(new_bytes).decode("utf-8")
+                cursor.execute(
+                    "UPDATE FIRE_SAFETY SET FSIC_IMAGE = %s WHERE ID = %s",
+                    (new_b64, int(row_id)),
+                )
+                conn.commit()
+                return True, "saved_without_history_or_fsic_column"
+            except Exception:
+                conn.rollback()
+            try:
+                cursor.execute(
+                    "UPDATE FIRE_SAFETY SET FSIC_IMAGE = %s WHERE ID = %s",
+                    (new_bytes, int(row_id)),
+                )
+                conn.commit()
+                return True, "saved_without_history_or_fsic_column"
+            except Exception as e2:
+                conn.rollback()
+                return False, str(e2)
+        return False, str(e)
+
+
+def _tax_mapped_ids_with_history(cursor) -> set[int]:
+    try:
+        cursor.execute(
+            "SELECT DISTINCT TAX_MAPPED_ID FROM TAX_MAPPED_STICKER_HISTORY"
+        )
+        return {int(r[0]) for r in cursor.fetchall() if r[0] is not None}
+    except Exception:
+        return set()
+
+
+def _fire_ids_with_history(cursor) -> set[int]:
+    try:
+        cursor.execute(
+            "SELECT DISTINCT FIRE_SAFETY_ID FROM FIRE_SAFETY_IMAGE_HISTORY"
+        )
+        return {int(r[0]) for r in cursor.fetchall() if r[0] is not None}
+    except Exception:
+        return set()
 
 
 # ---------------------------------------------------
@@ -526,8 +885,17 @@ def atp_certificates():
     if "atp_orig" not in st.session_state:
         st.session_state.atp_orig = df.copy()
 
+    filtered_atp = apply_column_dropdown_filters(
+        df, key_prefix="atp", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("atp"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until every dropdown is **All** "
+            "(and Contains fields are empty) so hidden rows are not treated as deleted."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_atp,
         num_rows="dynamic",
         use_container_width=True,
         key="atp_editor",
@@ -540,7 +908,11 @@ def atp_certificates():
     col_save, col_undo, col_refresh = st.columns(3)
 
     with col_save:
-        if st.button("💾 Save Changes", key="atp_save"):
+        if st.button(
+            "💾 Save Changes",
+            key="atp_save",
+            disabled=_save_disabled_col_filters("atp"),
+        ):
             handle_save_with_id(
                 df_name_prefix="atp",
                 table_name="ATP_CERTIFICATES",
@@ -656,8 +1028,17 @@ def bir_1906_atp():
     if "bir1906_orig" not in st.session_state:
         st.session_state.bir1906_orig = df.copy()
 
+    filtered_bir = apply_column_dropdown_filters(
+        df, key_prefix="bir1906", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("bir1906"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until filters are cleared "
+            "(all **All** / empty Contains)."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_bir,
         num_rows="dynamic",
         use_container_width=True,
         key="bir1906_editor",
@@ -669,7 +1050,11 @@ def bir_1906_atp():
     col_save, col_undo, col_refresh = st.columns(3)
 
     with col_save:
-        if st.button("💾 Save Changes", key="bir1906_save"):
+        if st.button(
+            "💾 Save Changes",
+            key="bir1906_save",
+            disabled=_save_disabled_col_filters("bir1906"),
+        ):
             handle_save_with_id(
                 df_name_prefix="bir1906",
                 table_name="BIR_1906_ATP",
@@ -868,8 +1253,16 @@ def boa_sticker():
     if "boa_orig" not in st.session_state:
         st.session_state.boa_orig = df.copy()
 
+    filtered_boa = apply_column_dropdown_filters(
+        df, key_prefix="boa", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("boa"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until filters are cleared."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_boa,
         num_rows="dynamic",
         use_container_width=True,
         key="boa_editor",
@@ -881,7 +1274,11 @@ def boa_sticker():
     col_save, col_undo, col_refresh = st.columns(3)
 
     with col_save:
-        if st.button("💾 Save Changes", key="boa_save"):
+        if st.button(
+            "💾 Save Changes",
+            key="boa_save",
+            disabled=_save_disabled_col_filters("boa"),
+        ):
             handle_save_with_id(
                 df_name_prefix="boa",
                 table_name="BOA_STICKER",
@@ -977,17 +1374,7 @@ def fire_safety():
         conn, cursor = get_cursor()
         cursor.execute("SELECT * FROM FIRE_SAFETY")
         data = cursor.fetchall()
-        columns = [
-            "ID",
-            "COMPANY",
-            "AREA",
-            "BRANCH",
-            "FSIC_CERTIFICATE_DATE",
-            "VALID_UNTIL",
-            "FSIC_FEE",
-            "STATUS",
-            "REMARKS",
-        ]
+        columns = [d[0] for d in cursor.description]
         return pd.DataFrame(data, columns=columns)
 
     df = load_fire()
@@ -995,8 +1382,19 @@ def fire_safety():
     if "fire_orig" not in st.session_state:
         st.session_state.fire_orig = df.copy()
 
-    edited_df = st.data_editor(
-        df,
+    filtered_fire = apply_column_dropdown_filters(
+        df, key_prefix="fire", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("fire"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until filters are cleared."
+        )
+
+    _fire_edit_cols = [
+        c for c in filtered_fire.columns if str(c).upper() != "FSIC_IMAGE"
+    ]
+    edited_core = st.data_editor(
+        filtered_fire[_fire_edit_cols],
         num_rows="dynamic",
         use_container_width=True,
         key="fire_editor",
@@ -1004,11 +1402,18 @@ def fire_safety():
             "VALID_UNTIL": st.column_config.DateColumn("VALID_UNTIL"),
         },
     )
+    edited_df = edited_core.copy()
+    if "FSIC_IMAGE" in filtered_fire.columns:
+        edited_df["FSIC_IMAGE"] = filtered_fire["FSIC_IMAGE"].values
 
     col_save, col_undo, col_refresh = st.columns(3)
 
     with col_save:
-        if st.button("💾 Save Changes", key="fire_save"):
+        if st.button(
+            "💾 Save Changes",
+            key="fire_save",
+            disabled=_save_disabled_col_filters("fire"),
+        ):
             handle_save_with_id(
                 df_name_prefix="fire",
                 table_name="FIRE_SAFETY",
@@ -1093,6 +1498,149 @@ def fire_safety():
             load_fire.clear()
             st.session_state.fire_orig = load_fire()
             safe_rerun()
+
+    if "fire_gallery_history_id" not in st.session_state:
+        st.session_state.fire_gallery_history_id = None
+
+    st.divider()
+    st.subheader("📤 Upload FSIC / site images (Fire Safety)")
+    st.caption(
+        "New uploads are **added to history**; the previous image is kept. "
+        "Run `snowflake_image_history_ddl.sql` if uploads fail (history table + FSIC_IMAGE column)."
+    )
+
+    fu_fire = st.file_uploader(
+        "Drag & drop (Fire Safety row ID)",
+        type=["png", "jpg", "jpeg"],
+        accept_multiple_files=True,
+        key="fire_fsic_uploader",
+    )
+
+    if fu_fire:
+        for f in fu_fire:
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.image(f, width=120)
+            with c2:
+                fid = st.number_input(
+                    f"Fire Safety ID for {f.name}",
+                    min_value=1,
+                    step=1,
+                    key=f"fire_up_id_{f.name}",
+                )
+                if st.button(f"Upload {f.name}", key=f"fire_up_btn_{f.name}"):
+                    if f.size > 2 * 1024 * 1024:
+                        st.error("Max file size is 2MB")
+                    elif f.type not in ["image/png", "image/jpeg"]:
+                        st.error("Only PNG/JPG allowed")
+                    else:
+                        conn, cursor = get_cursor()
+                        ok, msg = _fire_apply_image_upload(
+                            conn, cursor, int(fid), f.getvalue()
+                        )
+                        if ok:
+                            if msg != "ok":
+                                st.warning(
+                                    f"Saved ({msg}). Create FIRE_SAFETY_IMAGE_HISTORY / FSIC_IMAGE if needed."
+                                )
+                            else:
+                                st.success(f"{f.name} saved — previous image kept in history ✅")
+                            load_fire.clear()
+                            safe_rerun()
+                        else:
+                            st.error(f"Upload failed: {msg}")
+
+    st.divider()
+    st.subheader("🖼 Fire Safety image gallery")
+
+    conn_hist, cur_hist = get_cursor()
+    fire_hist_ids = _fire_ids_with_history(cur_hist)
+
+    cols_g = st.columns(4)
+    shown = 0
+    for _, frow in df.iterrows():
+        rid = int(frow["ID"]) if pd.notna(frow.get("ID")) else None
+        if rid is None:
+            continue
+        thumb = _fire_row_image_bytes(frow)
+        if thumb is None and rid not in fire_hist_ids:
+            continue
+
+        if thumb is None and rid in fire_hist_ids:
+            try:
+                rows_h = _fire_history_fetch(cur_hist, rid)
+                if rows_h and rows_h[0][0]:
+                    thumb = rows_h[0][0]
+            except Exception:
+                thumb = None
+        if thumb is None:
+            continue
+
+        with cols_g[shown % 4]:
+            st.image(thumb, use_container_width=True)
+            branch = frow.get("BRANCH", "")
+            st.caption(f"ID: {rid} | {branch}")
+            if st.button(
+                f"📂 {branch or 'Branch'} — all versions",
+                key=f"fire_hist_open_{rid}",
+                use_container_width=True,
+            ):
+                st.session_state.fire_gallery_history_id = rid
+            rep = st.file_uploader(
+                f"Add image (keeps prior) ID {rid}",
+                key=f"fire_rep_{rid}",
+            )
+            if rep:
+                conn, cursor = get_cursor()
+                ok, msg = _fire_apply_image_upload(
+                    conn, cursor, rid, rep.getvalue()
+                )
+                if ok:
+                    st.success("Added to history ✅")
+                    load_fire.clear()
+                    safe_rerun()
+                else:
+                    st.error(msg)
+            if st.button(f"🗑 Clear current image {rid}", key=f"fire_del_img_{rid}"):
+                try:
+                    conn, cursor = get_cursor()
+                    cursor.execute(
+                        "UPDATE FIRE_SAFETY SET FSIC_IMAGE = NULL WHERE ID = %s",
+                        (rid,),
+                    )
+                    conn.commit()
+                    st.info("Current image cleared — history kept.")
+                    load_fire.clear()
+                    safe_rerun()
+                except Exception as ex:
+                    st.error(str(ex))
+        shown += 1
+
+    hid = st.session_state.fire_gallery_history_id
+    if hid is not None:
+        st.markdown("---")
+        st.subheader(f"📜 Image history — Fire Safety ID {hid}")
+        try:
+            conn, cursor = get_cursor()
+            hist = _fire_history_fetch(cursor, int(hid))
+            if not hist:
+                st.info("No history rows yet for this ID (only the current image may exist).")
+            for img_data, as_of, created, who in hist:
+                if not img_data:
+                    continue
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.image(BytesIO(img_data), use_container_width=True)
+                with c2:
+                    st.write(f"**As-of date:** {as_of}")
+                    st.caption(f"Uploaded {created} — {who}")
+        except Exception as ex:
+            st.warning(f"Could not load history: {ex}")
+        if st.button("Close history", key="fire_hist_close"):
+            st.session_state.fire_gallery_history_id = None
+            safe_rerun()
+
+
 # ---------------------------------------------------
 # BRANCH TIN & ADDRESS
 # --------------------------------------------------
@@ -1405,10 +1953,21 @@ def branch_tin_address():
         return _sanitize_for_db(merged, date_cols=["DATE_OPEN", "DATE_OF_CLOSURE"])
 
     # ---------- MAIN table ----------
+    key_prefix = f"branch_tin_{company.lower()}"
     st.subheader(f"{company} Full Branch Table")
 
-    edited_df = st.data_editor(
+    filtered_main = apply_column_dropdown_filters(
         df,
+        key_prefix=f"{key_prefix}_main",
+        title="🔽 Column filters (dropdown)",
+    )
+    if _save_disabled_col_filters(f"{key_prefix}_main"):
+        st.warning(
+            "Column filters are active — **Save Changes (Main Table)** is disabled until filters are cleared."
+        )
+
+    edited_df = st.data_editor(
+        filtered_main,
         num_rows="dynamic",
         use_container_width=True,
         key=f"{company}_main_editor",
@@ -1420,12 +1979,15 @@ def branch_tin_address():
         },
     )
 
-    key_prefix = f"branch_tin_{company.lower()}"
     orig_key = f"{key_prefix}_orig"
     if orig_key not in st.session_state:
         st.session_state[orig_key] = df.copy()
 
-    if st.button("💾 Save Changes (Main Table)", key=f"{company}_save_main"):
+    if st.button(
+        "💾 Save Changes (Main Table)",
+        key=f"{company}_save_main",
+        disabled=_save_disabled_col_filters(f"{key_prefix}_main"),
+    ):
         to_save = edited_df.copy()
         to_save["COMPANY"] = to_save["COMPANY"].fillna(company).replace("", company)
         to_save = _ensure_columns(to_save, full_cols)
@@ -1475,8 +2037,21 @@ def branch_tin_address():
             if c not in df_new.columns:
                 df_new[c] = None
 
+        df_new_edit = df_new[
+            ["ID", "COMPANY", "BRANCH_NAME", "ADDRESS", "DATE_OPEN", "AREA", "TIN", "BRANCH_CODE", "RDO"]
+        ]
+        filtered_new = apply_column_dropdown_filters(
+            df_new_edit,
+            key_prefix=f"{key_prefix}_new",
+            title="🔽 Column filters (dropdown)",
+        )
+        if _save_disabled_col_filters(f"{key_prefix}_new"):
+            st.warning(
+                "Column filters are active — **Save Changes (NEW Branch View)** is disabled until filters are cleared."
+            )
+
         edited_new = st.data_editor(
-            df_new[["ID", "COMPANY", "BRANCH_NAME", "ADDRESS", "DATE_OPEN", "AREA", "TIN", "BRANCH_CODE", "RDO"]],
+            filtered_new,
             num_rows="dynamic",
             use_container_width=True,
             key=f"{company}_new_editor",
@@ -1486,7 +2061,11 @@ def branch_tin_address():
             },
         )
 
-        if st.button("💾 Save Changes (NEW Branch View)", key=f"{company}_save_new"):
+        if st.button(
+            "💾 Save Changes (NEW Branch View)",
+            key=f"{company}_save_new",
+            disabled=_save_disabled_col_filters(f"{key_prefix}_new"),
+        ):
             partial_save = merge_new_view_to_full(df, edited_new)
             to_save = _merge_partial_into_full(df, partial_save)
 
@@ -1526,8 +2105,21 @@ def branch_tin_address():
             if c not in df_changed.columns:
                 df_changed[c] = None
 
+        df_ch_edit = df_changed[
+            ["ID", "COMPANY", "BRANCH", "ADDRESS (NEW ADDRESS)", "ADDRESS (OLD ADDRESS)"]
+        ]
+        filtered_ch = apply_column_dropdown_filters(
+            df_ch_edit,
+            key_prefix=f"{key_prefix}_changed",
+            title="🔽 Column filters (dropdown)",
+        )
+        if _save_disabled_col_filters(f"{key_prefix}_changed"):
+            st.warning(
+                "Column filters are active — **Save Changes (Changed Address View)** is disabled until filters are cleared."
+            )
+
         edited_ch = st.data_editor(
-            df_changed[["ID", "COMPANY", "BRANCH", "ADDRESS (NEW ADDRESS)", "ADDRESS (OLD ADDRESS)"]],
+            filtered_ch,
             num_rows="dynamic",
             use_container_width=True,
             key=f"{company}_changed_editor",
@@ -1536,7 +2128,11 @@ def branch_tin_address():
             },
         )
 
-        if st.button("💾 Save Changes (Changed Address View)", key=f"{company}_save_changed"):
+        if st.button(
+            "💾 Save Changes (Changed Address View)",
+            key=f"{company}_save_changed",
+            disabled=_save_disabled_col_filters(f"{key_prefix}_changed"),
+        ):
             partial_save = merge_changed_view_to_full(df, edited_ch)
             to_save = _merge_partial_into_full(df, partial_save)
 
@@ -1852,8 +2448,18 @@ def business_permits():
             st.success("Rows saved successfully ✅")
 
     def render_editor(df, key):
-        return st.data_editor(
+        prefix = f"bp_tracker_{key}"
+        fdf = apply_column_dropdown_filters(
             df,
+            key_prefix=prefix,
+            title="🔽 Column filters (dropdown)",
+        )
+        if _save_disabled_col_filters(prefix):
+            st.warning(
+                "Column filters are active — **Save** for this tab is disabled until filters are cleared."
+            )
+        return st.data_editor(
+            fdf,
             num_rows="dynamic",
             use_container_width=True,
             key=key,
@@ -1878,8 +2484,17 @@ def business_permits():
     with tab1:
         st.subheader("Overview Form")
         df = load_overview()
-        edited_df = st.data_editor(
+        foverview = apply_column_dropdown_filters(
             df,
+            key_prefix="bp_overview",
+            title="🔽 Column filters (dropdown)",
+        )
+        if _save_disabled_col_filters("bp_overview"):
+            st.warning(
+                "Column filters are active — **Save Overview** is disabled until filters are cleared."
+            )
+        edited_df = st.data_editor(
+            foverview,
             num_rows="dynamic",
             use_container_width=True,
             key="overview_editor",
@@ -1900,7 +2515,10 @@ def business_permits():
                 ),
             },
         )
-        if st.button("💾 Save Overview"):
+        if st.button(
+            "💾 Save Overview",
+            disabled=_save_disabled_col_filters("bp_overview"),
+        ):
             save_overview(edited_df)
             load_overview.clear()
             safe_rerun()
@@ -1909,7 +2527,10 @@ def business_permits():
         st.subheader("Business Permit")
         df = load_data("BUSINESS_PERMIT")
         edited_df = render_editor(df, "business_tab")
-        if st.button("💾 Save Business Permit"):
+        if st.button(
+            "💾 Save Business Permit",
+            disabled=_save_disabled_col_filters("bp_tracker_business_tab"),
+        ):
             update_data(edited_df, "BUSINESS_PERMIT")
             load_data.clear()
             safe_rerun()
@@ -1918,7 +2539,10 @@ def business_permits():
         st.subheader("Barangay Permit")
         df = load_data("BRGY_PERMIT")
         edited_df = render_editor(df, "brgy_tab")
-        if st.button("💾 Save Brgy Permit"):
+        if st.button(
+            "💾 Save Brgy Permit",
+            disabled=_save_disabled_col_filters("bp_tracker_brgy_tab"),
+        ):
             update_data(edited_df, "BRGY_PERMIT")
             load_data.clear()
             safe_rerun()
@@ -1927,7 +2551,10 @@ def business_permits():
         st.subheader("Other Fees for Renew")
         df = load_data("OTHER_FEES")
         edited_df = render_editor(df, "other_tab")
-        if st.button("💾 Save Other Fees"):
+        if st.button(
+            "💾 Save Other Fees",
+            disabled=_save_disabled_col_filters("bp_tracker_other_tab"),
+        ):
             update_data(edited_df, "OTHER_FEES")
             load_data.clear()
             safe_rerun()
@@ -1937,9 +2564,10 @@ def business_permits():
 # TAX MAPPED
 # --------------------------------------------------
 def tax_mapped():
-    import base64
-
     st.title("🏷 TAX MAPPED Report")
+
+    if "tax_mapped_gallery_history_id" not in st.session_state:
+        st.session_state.tax_mapped_gallery_history_id = None
 
     # =========================================================
     # LOAD DATA
@@ -1965,8 +2593,16 @@ def tax_mapped():
     # =========================================================
     st.subheader("📋 Tax Mapped Table")
 
+    filtered_tax = apply_column_dropdown_filters(
+        df, key_prefix="tax_mapped", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("tax_mapped"):
+        st.warning(
+            "Column filters are active — **Save Table** is disabled until filters are cleared."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_tax,
         num_rows="dynamic",
         use_container_width=True,
         key="tax_mapped_editor",
@@ -1979,7 +2615,10 @@ def tax_mapped():
 
     # SAVE
     with col1:
-        if st.button("💾 Save Table"):
+        if st.button(
+            "💾 Save Table",
+            disabled=_save_disabled_col_filters("tax_mapped"),
+        ):
             handle_save_with_id(
                 df_name_prefix="tax_mapped",
                 table_name="TAX_MAPPED",
@@ -2031,15 +2670,20 @@ def tax_mapped():
             safe_rerun()
 
     # =========================================================
-    # MULTI IMAGE UPLOAD (FIXED)
+    # MULTI IMAGE UPLOAD — appends to history; keeps prior images
     # =========================================================
     st.divider()
     st.subheader("📤 Upload Sticker Images")
+    st.caption(
+        "Each upload **adds** a version. The table still shows the **newest** sticker in "
+        "`STICKER_IMAGE`; older files remain in **TAX_MAPPED_STICKER_HISTORY** "
+        "(run `snowflake_image_history_ddl.sql` once if uploads error)."
+    )
 
     uploaded_files = st.file_uploader(
         "Drag & Drop Images",
         type=["png", "jpg", "jpeg"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
     )
 
     if uploaded_files:
@@ -2055,52 +2699,35 @@ def tax_mapped():
                     f"ID for {file.name}",
                     key=f"id_{file.name}",
                     step=1,
-                    min_value=1
+                    min_value=1,
                 )
 
-                # ✅ UNIQUE BUTTON KEY (IMPORTANT FIX)
                 if st.button(f"Upload {file.name}", key=f"upload_{file.name}"):
-
-                    # 🔴 VALIDATION
                     if not row_id:
                         st.error("Enter valid ID")
-                        continue
-
-                    if file.size > 2 * 1024 * 1024:
+                    elif file.size > 2 * 1024 * 1024:
                         st.error("Max file size is 2MB")
-                        continue
-
-                    if file.type not in ["image/png", "image/jpeg"]:
+                    elif file.type not in ["image/png", "image/jpeg"]:
                         st.error("Only PNG/JPG allowed")
-                        continue
-
-                    try:
-                        file_bytes = file.getvalue()
-                        encoded = base64.b64encode(file_bytes).decode("utf-8")
-
+                    else:
                         conn, cursor = get_cursor()
-
-                        cursor.execute(
-                            """
-                            UPDATE TAX_MAPPED
-                            SET STICKER_IMAGE = %s
-                            WHERE ID = %s
-                            """,
-                            (encoded, int(row_id)),
+                        ok, msg = _tax_mapped_apply_image_upload(
+                            conn, cursor, int(row_id), file.getvalue()
                         )
-
-                        conn.commit()
-
-                        if cursor.rowcount == 0:
-                            st.warning(f"ID {row_id} not found")
+                        if ok:
+                            if msg == "saved_without_history_table":
+                                st.warning(
+                                    "Saved without history table — run snowflake_image_history_ddl.sql "
+                                    "to keep all versions."
+                                )
+                            else:
+                                st.success(
+                                    f"{file.name} uploaded — previous image kept in history ✅"
+                                )
+                            load_tax_mapped.clear()
+                            safe_rerun()
                         else:
-                            st.success(f"{file.name} uploaded ✅")
-
-                        load_tax_mapped.clear()
-                        safe_rerun()
-
-                    except Exception as e:
-                        st.error(f"Upload failed: {e}")
+                            st.error(f"Upload failed: {msg}")
 
     # =========================================================
     # IMAGE GALLERY
@@ -2108,52 +2735,58 @@ def tax_mapped():
     st.divider()
     st.subheader("🖼 Sticker Gallery")
 
+    conn_tm, cur_tm = get_cursor()
+    tax_hist_ids = _tax_mapped_ids_with_history(cur_tm)
+
     cols = st.columns(4)
-
-    for i, row in df.iterrows():
-
-        if not row["STICKER_IMAGE"]:
+    gi = 0
+    for _, row in df.iterrows():
+        rid = int(row["ID"]) if pd.notna(row.get("ID")) else None
+        if rid is None:
             continue
 
-        try:
-            img_bytes = base64.b64decode(row["STICKER_IMAGE"])
-        except:
+        img_bytes = _b64_to_bytes(row.get("STICKER_IMAGE"))
+        if img_bytes is None and rid not in tax_hist_ids:
+            continue
+        if img_bytes is None and rid in tax_hist_ids:
+            try:
+                hrows = _tax_mapped_history_fetch(cur_tm, rid)
+                if hrows and hrows[0][0]:
+                    img_bytes = hrows[0][0]
+            except Exception:
+                img_bytes = None
+        if img_bytes is None:
             continue
 
-        with cols[i % 4]:
+        with cols[gi % 4]:
             st.image(img_bytes, use_container_width=True)
-            st.caption(f"ID: {row['ID']} | {row['BRANCH']}")
+            branch = row.get("BRANCH", "")
+            st.caption(f"ID: {rid} | {branch}")
+            if st.button(
+                f"📂 {branch or 'Branch'} — all versions",
+                key=f"tm_hist_btn_{rid}",
+                use_container_width=True,
+            ):
+                st.session_state.tax_mapped_gallery_history_id = rid
 
-            # REPLACE
             replace_file = st.file_uploader(
-                f"Replace ID {row['ID']}",
-                key=f"replace_{row['ID']}"
+                f"Add image (keeps prior) ID {rid}",
+                key=f"replace_{rid}",
             )
 
             if replace_file:
-                try:
-                    encoded = base64.b64encode(replace_file.getvalue()).decode()
-
-                    conn, cursor = get_cursor()
-                    cursor.execute(
-                        """
-                        UPDATE TAX_MAPPED
-                        SET STICKER_IMAGE = %s
-                        WHERE ID = %s
-                        """,
-                        (encoded, int(row["ID"])),
-                    )
-                    conn.commit()
-
-                    st.success("Replaced ✅")
+                conn, cursor = get_cursor()
+                ok, msg = _tax_mapped_apply_image_upload(
+                    conn, cursor, rid, replace_file.getvalue()
+                )
+                if ok:
+                    st.success("Added to history ✅")
                     load_tax_mapped.clear()
                     safe_rerun()
+                else:
+                    st.error(f"Replace failed: {msg}")
 
-                except Exception as e:
-                    st.error(f"Replace failed: {e}")
-
-            # DELETE
-            if st.button(f"🗑 Delete {row['ID']}", key=f"del_{row['ID']}"):
+            if st.button(f"🗑 Clear current sticker {rid}", key=f"del_{rid}"):
                 try:
                     conn, cursor = get_cursor()
                     cursor.execute(
@@ -2162,16 +2795,39 @@ def tax_mapped():
                         SET STICKER_IMAGE = NULL
                         WHERE ID = %s
                         """,
-                        (int(row["ID"]),),
+                        (rid,),
                     )
                     conn.commit()
-
-                    st.warning("Deleted ❌")
+                    st.info("Current sticker cleared — history versions are kept.")
                     load_tax_mapped.clear()
                     safe_rerun()
-
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
+        gi += 1
+
+    thid = st.session_state.tax_mapped_gallery_history_id
+    if thid is not None:
+        st.markdown("---")
+        st.subheader(f"📜 Sticker history — Tax Mapped ID {thid} (by Date Tax Mapped, then time)")
+        try:
+            conn, cursor = get_cursor()
+            hist = _tax_mapped_history_fetch(cursor, int(thid))
+            if not hist:
+                st.info("No history rows yet — only the current sticker may exist.")
+            for img_data, as_of, created, who in hist:
+                if not img_data:
+                    continue
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.image(BytesIO(img_data), use_container_width=True)
+                with c2:
+                    st.write(f"**Date Tax Mapped (as-of):** {as_of}")
+                    st.caption(f"Uploaded {created} — {who}")
+        except Exception as ex:
+            st.warning(f"Could not load history: {ex}")
+        if st.button("Close history", key="tax_mapped_hist_close"):
+            st.session_state.tax_mapped_gallery_history_id = None
+            safe_rerun()
 # ---------------------------------------------------
 # Secretary Certificates Page
 # ---------------------------------------------------
@@ -2217,8 +2873,16 @@ def secretary_certificates():
     # ---------------------------------------------------
     # DATA EDITOR
     # ---------------------------------------------------
+    filtered_sec = apply_column_dropdown_filters(
+        df, key_prefix="sec", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("sec"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until filters are cleared."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_sec,
         num_rows="dynamic",
         use_container_width=True,
         key="sec_editor",
@@ -2234,7 +2898,7 @@ def secretary_certificates():
     # SAVE
     # ---------------------------------------------------
     with col_save:
-        if st.button("💾 Save Changes"):
+        if st.button("💾 Save Changes", disabled=_save_disabled_col_filters("sec")):
 
             log_activity("Secretary Certificates", "SAVE")
 
@@ -2381,8 +3045,16 @@ def board_resolutions():
     # ---------------------------------------------------
     # DATA EDITOR
     # ---------------------------------------------------
+    filtered_board = apply_column_dropdown_filters(
+        df, key_prefix="board", title="🔽 Column filters (dropdown)"
+    )
+    if _save_disabled_col_filters("board"):
+        st.warning(
+            "Column filters are active — **Save Changes** is disabled until filters are cleared."
+        )
+
     edited_df = st.data_editor(
-        df,
+        filtered_board,
         num_rows="dynamic",
         use_container_width=True,
         key="board_editor",
@@ -2398,7 +3070,11 @@ def board_resolutions():
     # SAVE
     # ---------------------------------------------------
     with col_save:
-        if st.button("💾 Save Changes", key="board_save"):
+        if st.button(
+            "💾 Save Changes",
+            key="board_save",
+            disabled=_save_disabled_col_filters("board"),
+        ):
 
             log_activity("Board Resolutions", "SAVE")
 
